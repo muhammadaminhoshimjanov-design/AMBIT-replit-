@@ -1,0 +1,110 @@
+Take the current Ambit onboarding and visual shell and convert it into a fully functional MVP.
+
+Do not redesign the UI first. Keep the current premium design system and make the product logic real.
+
+TECH GOAL:
+Turn the prototype into a working Expo/React Native app with real auth, persistent onboarding, protected routes, real profile data, real circles, real posts, real comments, and a working feed.
+
+STACK:
+- Expo + Expo Router
+- Supabase for auth, database, and storage
+- Use protected route logic so users move through:
+  1. unauthenticated -> auth screens
+  2. authenticated but onboarding incomplete -> onboarding screens
+  3. authenticated and onboarding complete -> main app
+
+MAIN TASKS:
+
+1. AUTH
+- Connect Gmail/email authentication to Supabase
+- Persist session
+- Add sign out
+- Prevent non-authenticated users from entering app routes
+
+2. ONBOARDING STATE
+- Save onboarding progress after each step
+- Fields to save:
+  - auth user id
+  - email
+  - nickname
+  - bio/status
+  - avatar/photo
+  - selected goals
+  - selected identity type
+  - selected circles
+  - circle style preferences
+  - onboarding_completed boolean
+- Allow back navigation without losing data
+
+3. DATABASE TABLES
+Create and wire up:
+- profiles
+- circles
+- circle_members
+- posts
+- comments
+- follows
+- topic_of_day
+- onboarding_progress or equivalent persisted profile state
+
+4. PROFILE
+- Load saved nickname, avatar, goals, circles
+- Allow editing profile
+- Real avatar upload to storage
+
+5. CIRCLES
+- Show real circle cards
+- Join/leave circles
+- Save memberships
+- Feed should use joined circles
+
+6. POSTS
+- Create post screen
+- Post types: question, debate, experience
+- Save post to backend
+- Load posts in home feed
+
+7. COMMENTS
+- Add real comments to posts
+- Save comments to backend
+- Render comments under each post
+
+8. FOLLOW SYSTEM
+- Follow/unfollow users
+- Persist follows
+- Show followed users’ posts in feed
+
+9. HOME FEED
+Replace placeholder content with real feed data:
+- topic of the day
+- posts from joined circles
+- posts from followed users
+- newest/high-signal discussions
+
+10. ROUTE LOGIC
+Implement route guards:
+- if no session -> auth flow
+- if session but onboarding not complete -> onboarding flow
+- if session and onboarding complete -> main app
+
+11. SEED DATA
+Add seed circles and one topic of the day so the app does not feel empty:
+- SAT 1500+
+- Business & Economics
+- Scholarship Hunters
+- International Students
+- Self Improvement
+
+IMPORTANT PRODUCT RULES:
+- Every button must be functional
+- Every onboarding step must save real data
+- Keep the current cinematic premium UI
+- Prioritize working product logic over extra visual effects
+- Do not add unnecessary features beyond MVP
+- Make this stable and testable first
+
+DELIVERABLE:
+A working MVP where a user can sign up, complete onboarding, join circles, create posts, comment, follow others, and enter a real feed with saved state.
+My recommendation on backend choice
+
+Use Supabase for this first version unless you already started with Firebase. It is especially convenient here because you need auth + DB + storage together, and Expo officially documents using Supabase with React Native.
