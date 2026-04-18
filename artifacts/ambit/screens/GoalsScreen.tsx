@@ -1,3 +1,4 @@
+import { LinearGradient } from "expo-linear-gradient";
 import React, { useState, useRef, useEffect } from "react";
 import {
   View,
@@ -28,11 +29,11 @@ const FOCUS_TOPICS = [
   "Productivity",
 ];
 
-const IDENTITY_OPTIONS = [
-  { label: "Just starting out", sub: "I'm exploring my options" },
-  { label: "Improve fast", sub: "I want to level up quickly" },
-  { label: "Highly ambitious", sub: "I'm set on reaching the top" },
-  { label: "Serious circle", sub: "I want driven people around me" },
+const IDENTITIES = [
+  { label: "Just starting out", desc: "Exploring my path", icon: "map" as const },
+  { label: "Improve fast", desc: "Level up as quickly as possible", icon: "trending-up" as const },
+  { label: "Highly ambitious", desc: "I'm set on reaching the top", icon: "target" as const },
+  { label: "Serious circle", desc: "Want driven people around me", icon: "users" as const },
 ];
 
 export function GoalsScreen() {
@@ -43,19 +44,19 @@ export function GoalsScreen() {
 
   const [topics, setTopics] = useState<string[]>(data.focusTopics);
   const [identity, setIdentity] = useState(data.studentIdentity);
-  const contentFade = useRef(new Animated.Value(0)).current;
-  const contentSlide = useRef(new Animated.Value(24)).current;
+  const fade = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(28)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(contentFade, { toValue: 1, duration: 500, useNativeDriver: true }),
-      Animated.timing(contentSlide, { toValue: 0, duration: 500, useNativeDriver: true }),
+      Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
     ]).start();
   }, []);
 
-  function toggleTopic(topic: string) {
+  function toggleTopic(t: string) {
     setTopics((prev) =>
-      prev.includes(topic) ? prev.filter((t) => t !== topic) : [...prev, topic]
+      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
     );
   }
 
@@ -64,6 +65,8 @@ export function GoalsScreen() {
     goNext();
   }
 
+  const canContinue = topics.length > 0 && !!identity;
+
   return (
     <View style={styles.screen}>
       <GradientBackground />
@@ -71,21 +74,24 @@ export function GoalsScreen() {
       <View style={[styles.content, { paddingTop: topPad + 16, paddingBottom: bottomPad + 16 }]}>
         <View style={styles.topBar}>
           <TouchableOpacity onPress={goBack} style={styles.backBtn}>
-            <Feather name="arrow-left" size={22} color="#8A94B0" />
+            <Feather name="chevron-left" size={24} color="#64748B" />
           </TouchableOpacity>
-          <ProgressBar current={currentStep} total={totalSteps} />
+          <View style={{ flex: 1 }}>
+            <ProgressBar current={currentStep} total={totalSteps} />
+          </View>
+          <Text style={styles.stepLabel}>{currentStep}/{totalSteps}</Text>
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
-          <Animated.View
-            style={{ opacity: contentFade, transform: [{ translateY: contentSlide }] }}
-          >
-            <Text style={styles.title}>What are you focused{"\n"}on right now?</Text>
-            <Text style={styles.subtitle}>Select all that apply</Text>
+          <Animated.View style={{ opacity: fade, transform: [{ translateY: slideAnim }] }}>
+            <Text style={styles.eyebrow}>Step {currentStep}</Text>
+            <Text style={styles.title}>What are you{"\n"}focused on?</Text>
+            <Text style={styles.subtitle}>Select everything that applies to you now.</Text>
 
+            {/* Focus Grid */}
             <View style={styles.grid}>
               {FOCUS_TOPICS.map((topic) => (
-                <View key={topic} style={styles.gridItem}>
+                <View key={topic} style={styles.gridCell}>
                   <SelectableCard
                     label={topic}
                     selected={topics.includes(topic)}
@@ -95,27 +101,34 @@ export function GoalsScreen() {
               ))}
             </View>
 
-            <Text style={styles.sectionTitle}>What describes you best?</Text>
-            <Text style={styles.sectionSub}>Choose one</Text>
+            {/* Selection count pill */}
+            {topics.length > 0 && (
+              <View style={styles.countPill}>
+                <Feather name="check-circle" size={13} color="#22D3EE" />
+                <Text style={styles.countText}>{topics.length} selected</Text>
+              </View>
+            )}
+
+            {/* Identity section */}
+            <Text style={styles.sectionTitle}>What drives you most?</Text>
 
             <View style={styles.identityList}>
-              {IDENTITY_OPTIONS.map((opt) => (
-                <IdentityOption
-                  key={opt.label}
-                  label={opt.label}
-                  sub={opt.sub}
-                  selected={identity === opt.label}
-                  onPress={() => setIdentity(opt.label)}
+              {IDENTITIES.map((id) => (
+                <IdentityCard
+                  key={id.label}
+                  item={id}
+                  selected={identity === id.label}
+                  onPress={() => setIdentity(id.label)}
                 />
               ))}
             </View>
 
-            <MascotGuide message="This helps me build your feed." style={styles.mascot} />
+            <MascotGuide message="This helps me build your feed." compact style={styles.mascot} />
 
             <GradientButton
               label="Continue"
               onPress={handleNext}
-              disabled={topics.length === 0 || !identity}
+              disabled={!canContinue}
               style={styles.btn}
             />
           </Animated.View>
@@ -125,150 +138,127 @@ export function GoalsScreen() {
   );
 }
 
-function IdentityOption({
-  label,
-  sub,
+function IdentityCard({
+  item,
   selected,
   onPress,
 }: {
-  label: string;
-  sub: string;
+  item: { label: string; desc: string; icon: string };
   selected: boolean;
   onPress: () => void;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
+  const anim = useRef(new Animated.Value(0)).current;
 
-  function handlePress() {
-    Animated.sequence([
-      Animated.timing(scale, { toValue: 0.97, duration: 80, useNativeDriver: true }),
-      Animated.timing(scale, { toValue: 1, duration: 120, useNativeDriver: true }),
-    ]).start();
-    onPress();
-  }
+  useEffect(() => {
+    Animated.spring(anim, { toValue: selected ? 1 : 0, useNativeDriver: false, speed: 22, bounciness: 4 }).start();
+    if (selected) {
+      Animated.sequence([
+        Animated.timing(scale, { toValue: 0.975, duration: 80, useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 28, bounciness: 6 }),
+      ]).start();
+    }
+  }, [selected]);
+
+  const borderColor = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["rgba(255,255,255,0.05)", "rgba(99,102,241,0.6)"],
+  });
 
   return (
-    <Animated.View style={{ transform: [{ scale }] }}>
-      <TouchableOpacity
-        style={[styles.identityCard, selected && styles.identityCardSelected]}
-        onPress={handlePress}
-        activeOpacity={0.9}
-      >
-        <View style={styles.identityRadio}>
-          {selected && <View style={styles.identityRadioDot} />}
+    <Animated.View style={[styles.idCard, { borderColor, transform: [{ scale }] }]}>
+      <TouchableOpacity style={styles.idInner} onPress={onPress} activeOpacity={0.9}>
+        {selected && (
+          <LinearGradient
+            colors={["rgba(59,130,246,0.12)", "rgba(99,102,241,0.07)"]}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
+        <View style={[styles.idIcon, selected && styles.idIconSelected]}>
+          <Feather name={item.icon as any} size={17} color={selected ? "#818CF8" : "#334155"} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.identityLabel, selected && styles.identityLabelSelected]}>
-            {label}
-          </Text>
-          <Text style={styles.identitySub}>{sub}</Text>
+          <Text style={[styles.idLabel, selected && styles.idLabelSelected]}>{item.label}</Text>
+          <Text style={styles.idDesc}>{item.desc}</Text>
         </View>
-        {selected && (
-          <Feather name="check-circle" size={18} color="#3B82F6" />
-        )}
+        {selected && <Feather name="check-circle" size={18} color="#6366F1" />}
       </TouchableOpacity>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#0A0F1F" },
-  content: {
-    flex: 1,
-    paddingHorizontal: 24,
-  },
+  screen: { flex: 1, backgroundColor: "#050813" },
+  content: { flex: 1, paddingHorizontal: 24 },
   topBar: {
-    gap: 16,
-    marginBottom: 12,
-  },
-  backBtn: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    fontSize: 30,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    letterSpacing: -0.8,
-    marginBottom: 8,
-    lineHeight: 38,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "#8A94B0",
-    marginBottom: 20,
-  },
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 28,
-  },
-  gridItem: {
-    width: "47%",
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    marginBottom: 6,
-  },
-  sectionSub: {
-    fontSize: 14,
-    color: "#8A94B0",
-    marginBottom: 16,
-  },
-  identityList: {
-    gap: 10,
-    marginBottom: 28,
-  },
-  identityCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    backgroundColor: "rgba(20,25,41,0.8)",
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.07)",
-  },
-  identityCardSelected: {
-    borderColor: "rgba(59,130,246,0.5)",
-    backgroundColor: "rgba(59,130,246,0.1)",
-  },
-  identityRadio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: "#8A94B0",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  identityRadioDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "#3B82F6",
-  },
-  identityLabel: {
-    color: "#C4CCE0",
-    fontSize: 15,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  identityLabelSelected: {
-    color: "#FFFFFF",
-  },
-  identitySub: {
-    color: "#8A94B0",
-    fontSize: 12,
-  },
-  mascot: {
-    marginBottom: 20,
-  },
-  btn: {
+    gap: 12,
     marginBottom: 24,
   },
+  backBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepLabel: { color: "#334155", fontSize: 13, fontWeight: "600" },
+  eyebrow: {
+    color: "#6366F1",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    marginBottom: 8,
+  },
+  title: {
+    fontSize: 34,
+    fontWeight: "800",
+    color: "#F8FAFC",
+    letterSpacing: -1.2,
+    lineHeight: 40,
+    marginBottom: 10,
+  },
+  subtitle: { fontSize: 15, color: "#64748B", marginBottom: 22 },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 14 },
+  gridCell: { width: "47%" },
+  countPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(34,211,238,0.08)",
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "rgba(34,211,238,0.2)",
+  },
+  countText: { color: "#22D3EE", fontSize: 12, fontWeight: "700" },
+  sectionTitle: { fontSize: 20, fontWeight: "700", color: "#E2E8F0", marginBottom: 14 },
+  identityList: { gap: 10, marginBottom: 24 },
+  idCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: "hidden",
+    backgroundColor: "rgba(14,19,48,0.8)",
+  },
+  idInner: { flexDirection: "row", alignItems: "center", gap: 14, padding: 16 },
+  idIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  idIconSelected: { backgroundColor: "rgba(99,102,241,0.14)" },
+  idLabel: { color: "#94A3B8", fontSize: 15, fontWeight: "600", marginBottom: 3 },
+  idLabelSelected: { color: "#F1F5F9" },
+  idDesc: { color: "#334155", fontSize: 12 },
+  mascot: { marginBottom: 20 },
+  btn: { marginBottom: 32 },
 });

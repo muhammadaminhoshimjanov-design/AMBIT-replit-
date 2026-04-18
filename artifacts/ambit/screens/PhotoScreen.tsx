@@ -1,3 +1,4 @@
+import { LinearGradient } from "expo-linear-gradient";
 import React, { useState, useRef, useEffect } from "react";
 import {
   View,
@@ -6,6 +7,7 @@ import {
   TouchableOpacity,
   Animated,
   Platform,
+  ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -15,14 +17,13 @@ import { MascotGuide } from "@/components/MascotGuide";
 import { ProgressBar } from "@/components/ProgressBar";
 import { useOnboarding } from "@/context/OnboardingContext";
 
-const AVATARS = ["A", "B", "C", "D", "E", "F"];
-const AVATAR_COLORS = [
-  "#3B82F6",
-  "#8B5CF6",
-  "#EC4899",
-  "#10B981",
-  "#F59E0B",
-  "#EF4444",
+const PALETTES = [
+  { id: "A", colors: ["#3B82F6", "#6366F1"] as const },
+  { id: "B", colors: ["#8B5CF6", "#A855F7"] as const },
+  { id: "C", colors: ["#EC4899", "#F43F5E"] as const },
+  { id: "D", colors: ["#10B981", "#059669"] as const },
+  { id: "E", colors: ["#F59E0B", "#EF4444"] as const },
+  { id: "F", colors: ["#06B6D4", "#3B82F6"] as const },
 ];
 
 export function PhotoScreen() {
@@ -31,34 +32,28 @@ export function PhotoScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [selectedAvatar, setSelectedAvatar] = useState(data.avatarStyle ?? "A");
-  const contentFade = useRef(new Animated.Value(0)).current;
-  const contentSlide = useRef(new Animated.Value(24)).current;
+  const [selected, setSelected] = useState(data.avatarStyle ?? "A");
+  const fade = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(28)).current;
   const frameGlow = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(contentFade, { toValue: 1, duration: 500, useNativeDriver: true }),
-      Animated.timing(contentSlide, { toValue: 0, duration: 500, useNativeDriver: true }),
+      Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
     ]).start();
     Animated.loop(
       Animated.sequence([
-        Animated.timing(frameGlow, { toValue: 1, duration: 2000, useNativeDriver: false }),
-        Animated.timing(frameGlow, { toValue: 0, duration: 2000, useNativeDriver: false }),
+        Animated.timing(frameGlow, { toValue: 1, duration: 2500, useNativeDriver: true }),
+        Animated.timing(frameGlow, { toValue: 0, duration: 2500, useNativeDriver: true }),
       ])
     ).start();
   }, []);
 
-  const glowOpacity = frameGlow.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.4, 1],
-  });
-
-  const avatarColor =
-    AVATAR_COLORS[AVATARS.indexOf(selectedAvatar)] ?? "#3B82F6";
+  const palette = PALETTES.find((p) => p.id === selected) ?? PALETTES[0];
 
   function handleNext() {
-    updateData({ avatarStyle: selectedAvatar });
+    updateData({ avatarStyle: selected });
     goNext();
   }
 
@@ -66,227 +61,232 @@ export function PhotoScreen() {
     <View style={styles.screen}>
       <GradientBackground />
 
-      <View style={[styles.content, { paddingTop: topPad + 16, paddingBottom: bottomPad + 16 }]}>
+      <View style={[styles.content, { paddingTop: topPad + 16, paddingBottom: bottomPad + 20 }]}>
         <View style={styles.topBar}>
           <TouchableOpacity onPress={goBack} style={styles.backBtn}>
-            <Feather name="arrow-left" size={22} color="#8A94B0" />
+            <Feather name="chevron-left" size={24} color="#64748B" />
           </TouchableOpacity>
-          <ProgressBar current={currentStep} total={totalSteps} />
+          <View style={{ flex: 1 }}>
+            <ProgressBar current={currentStep} total={totalSteps} />
+          </View>
+          <Text style={styles.stepLabel}>{currentStep}/{totalSteps}</Text>
         </View>
 
-        <Animated.View
-          style={[
-            styles.main,
-            { opacity: contentFade, transform: [{ translateY: contentSlide }] },
-          ]}
-        >
-          <Text style={styles.title}>Add your profile look</Text>
-          <Text style={styles.subtitle}>
-            A photo makes your journey more personal.
-          </Text>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <Animated.View style={{ opacity: fade, transform: [{ translateY: slideAnim }] }}>
+            <Text style={styles.eyebrow}>Step {currentStep}</Text>
+            <Text style={styles.title}>Add your{"\n"}profile look</Text>
+            <Text style={styles.subtitle}>This is how the community sees you.</Text>
 
-          <View style={styles.previewCenter}>
-            <Animated.View
-              style={[styles.frameOuter, { borderColor: avatarColor, opacity: glowOpacity }]}
-            >
-              <View style={[styles.frameInner, { backgroundColor: avatarColor }]}>
-                <Text style={styles.avatarLetter}>
-                  {data.nickname?.[0]?.toUpperCase() ?? selectedAvatar}
-                </Text>
+            {/* Main preview */}
+            <View style={styles.previewCenter}>
+              <Animated.View
+                style={[styles.haloRing, { opacity: frameGlow.interpolate({ inputRange: [0, 1], outputRange: [0.4, 0.9] }) }]}
+              >
+                <LinearGradient
+                  colors={palette.colors}
+                  style={styles.haloGradient}
+                />
+              </Animated.View>
+              <View style={styles.frameOuter}>
+                <LinearGradient
+                  colors={palette.colors}
+                  style={styles.frameInner}
+                >
+                  <Text style={styles.avatarLetter}>
+                    {data.nickname?.[0]?.toUpperCase() ?? selected}
+                  </Text>
+                </LinearGradient>
               </View>
-            </Animated.View>
-            <Text style={styles.previewName}>{data.nickname || "Your Name"}</Text>
-          </View>
+              <Text style={styles.previewName}>{data.nickname || "Your Name"}</Text>
+              <Text style={styles.previewSub}>Ambit member</Text>
+            </View>
 
-          <TouchableOpacity style={styles.uploadBtn} activeOpacity={0.8}>
-            <Feather name="camera" size={20} color="#3B82F6" />
-            <Text style={styles.uploadLabel}>Upload photo</Text>
-          </TouchableOpacity>
+            {/* Upload option */}
+            <TouchableOpacity style={styles.uploadRow} activeOpacity={0.85}>
+              <View style={styles.uploadIcon}>
+                <Feather name="camera" size={18} color="#6366F1" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.uploadTitle}>Upload a photo</Text>
+                <Text style={styles.uploadSub}>Show your real face to the community</Text>
+              </View>
+              <Feather name="chevron-right" size={18} color="#334155" />
+            </TouchableOpacity>
 
-          <Text style={styles.orText}>or choose an avatar</Text>
+            <Text style={styles.orText}>or choose an avatar color</Text>
 
-          <View style={styles.avatarGrid}>
-            {AVATARS.map((letter, i) => (
-              <AvatarOption
-                key={letter}
-                letter={letter}
-                color={AVATAR_COLORS[i]}
-                selected={selectedAvatar === letter}
-                onPress={() => setSelectedAvatar(letter)}
-                nickname={data.nickname}
-              />
-            ))}
-          </View>
+            {/* Avatar palette grid */}
+            <View style={styles.paletteGrid}>
+              {PALETTES.map((p) => (
+                <AvatarChip
+                  key={p.id}
+                  palette={p}
+                  selected={selected === p.id}
+                  onPress={() => setSelected(p.id)}
+                  initial={data.nickname?.[0]?.toUpperCase() ?? p.id}
+                />
+              ))}
+            </View>
 
-          <MascotGuide message="Your profile, your presence." style={styles.mascot} />
+            <MascotGuide message="Your profile, your presence." compact style={styles.mascot} />
 
-          <GradientButton label="Continue" onPress={handleNext} />
-
-          <TouchableOpacity onPress={goNext} style={styles.skipBtn} activeOpacity={0.7}>
-            <Text style={styles.skipText}>Skip for now</Text>
-          </TouchableOpacity>
-        </Animated.View>
+            <GradientButton label="Continue" onPress={handleNext} style={styles.btn} />
+            <TouchableOpacity style={styles.skipBtn} onPress={goNext} activeOpacity={0.7}>
+              <Text style={styles.skipText}>Skip for now</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </ScrollView>
       </View>
     </View>
   );
 }
 
-function AvatarOption({
-  letter,
-  color,
+function AvatarChip({
+  palette,
   selected,
   onPress,
-  nickname,
+  initial,
 }: {
-  letter: string;
-  color: string;
+  palette: { id: string; colors: readonly [string, string] };
   selected: boolean;
   onPress: () => void;
-  nickname: string;
+  initial: string;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
-  const displayChar = nickname?.[letter.charCodeAt(0) - 65] ?? letter;
+  const ring = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.spring(scale, {
-      toValue: selected ? 1.12 : 1,
-      useNativeDriver: true,
-      speed: 20,
-      bounciness: 8,
-    }).start();
+    Animated.spring(scale, { toValue: selected ? 1.15 : 1, useNativeDriver: true, speed: 22, bounciness: 8 }).start();
+    Animated.timing(ring, { toValue: selected ? 1 : 0, duration: 200, useNativeDriver: false }).start();
   }, [selected]);
 
   return (
     <Animated.View style={{ transform: [{ scale }] }}>
-      <TouchableOpacity
-        style={[
-          styles.avatarOption,
-          { backgroundColor: color, borderColor: selected ? "#FFFFFF" : "transparent" },
-        ]}
-        onPress={onPress}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.avatarOptionLetter}>{displayChar.toUpperCase()}</Text>
+      <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={styles.chipWrapper}>
+        <LinearGradient
+          colors={palette.colors}
+          style={[styles.chip, selected && styles.chipSelected]}
+        >
+          <Text style={styles.chipLetter}>{initial}</Text>
+        </LinearGradient>
+        {selected && <View style={styles.chipRing} />}
       </TouchableOpacity>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#0A0F1F" },
-  content: {
-    flex: 1,
-    paddingHorizontal: 24,
-  },
+  screen: { flex: 1, backgroundColor: "#050813" },
+  content: { flex: 1, paddingHorizontal: 24 },
   topBar: {
-    gap: 16,
-    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 24,
   },
   backBtn: {
-    width: 40,
-    height: 40,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.04)",
     alignItems: "center",
     justifyContent: "center",
   },
-  main: {
-    flex: 1,
+  stepLabel: { color: "#334155", fontSize: 13, fontWeight: "600" },
+  eyebrow: {
+    color: "#6366F1",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    marginBottom: 8,
   },
   title: {
-    fontSize: 32,
+    fontSize: 34,
     fontWeight: "800",
-    color: "#FFFFFF",
-    letterSpacing: -1,
+    color: "#F8FAFC",
+    letterSpacing: -1.2,
+    lineHeight: 40,
     marginBottom: 10,
   },
-  subtitle: {
-    fontSize: 16,
-    color: "#8A94B0",
-    marginBottom: 28,
+  subtitle: { fontSize: 15, color: "#64748B", marginBottom: 28 },
+  previewCenter: { alignItems: "center", marginBottom: 28, position: "relative" },
+  haloRing: {
+    position: "absolute",
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    overflow: "hidden",
+    top: -5,
   },
-  previewCenter: {
-    alignItems: "center",
-    marginBottom: 28,
-  },
+  haloGradient: { flex: 1, opacity: 0.18 },
   frameOuter: {
     width: 110,
     height: 110,
     borderRadius: 55,
-    borderWidth: 3,
-    padding: 4,
+    overflow: "hidden",
     marginBottom: 14,
-    shadowColor: "#3B82F6",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 20,
+    shadowColor: "#6366F1",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
   },
-  frameInner: {
-    flex: 1,
-    borderRadius: 52,
+  frameInner: { flex: 1, alignItems: "center", justifyContent: "center" },
+  avatarLetter: { fontSize: 44, fontWeight: "800", color: "#fff" },
+  previewName: { color: "#F8FAFC", fontSize: 18, fontWeight: "700", marginBottom: 4 },
+  previewSub: { color: "#475569", fontSize: 13 },
+  uploadRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    backgroundColor: "rgba(15,20,50,0.8)",
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "rgba(99,102,241,0.15)",
+  },
+  uploadIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(99,102,241,0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarLetter: {
-    fontSize: 40,
-    fontWeight: "800",
-    color: "#fff",
-  },
-  previewName: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  uploadBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderWidth: 1,
-    borderColor: "rgba(59,130,246,0.3)",
-    borderRadius: 14,
-    padding: 16,
-    backgroundColor: "rgba(59,130,246,0.08)",
-    marginBottom: 20,
-  },
-  uploadLabel: {
-    color: "#3B82F6",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  orText: {
-    color: "#8A94B0",
-    fontSize: 13,
-    textAlign: "center",
-    marginBottom: 16,
-  },
-  avatarGrid: {
+  uploadTitle: { color: "#E2E8F0", fontSize: 15, fontWeight: "600" },
+  uploadSub: { color: "#475569", fontSize: 12, marginTop: 2 },
+  orText: { color: "#334155", fontSize: 13, textAlign: "center", marginBottom: 16 },
+  paletteGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
+    gap: 14,
     justifyContent: "center",
-    marginBottom: 24,
+    marginBottom: 28,
   },
-  avatarOption: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+  chipWrapper: { position: "relative" },
+  chip: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
+  },
+  chipSelected: {},
+  chipRing: {
+    position: "absolute",
+    top: -4,
+    left: -4,
+    right: -4,
+    bottom: -4,
+    borderRadius: 34,
     borderWidth: 2,
+    borderColor: "#ffffff",
   },
-  avatarOptionLetter: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "800",
-  },
-  mascot: {
-    marginBottom: 20,
-  },
-  skipBtn: {
-    marginTop: 12,
-    alignItems: "center",
-    paddingVertical: 12,
-  },
-  skipText: {
-    color: "#555D7A",
-    fontSize: 14,
-  },
+  chipLetter: { color: "#fff", fontSize: 22, fontWeight: "800" },
+  mascot: { marginBottom: 20 },
+  btn: { marginBottom: 12 },
+  skipBtn: { alignItems: "center", paddingVertical: 14, marginBottom: 24 },
+  skipText: { color: "#334155", fontSize: 14, fontWeight: "500" },
 });

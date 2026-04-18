@@ -1,3 +1,4 @@
+import { LinearGradient } from "expo-linear-gradient";
 import React, { useState, useRef, useEffect } from "react";
 import {
   View,
@@ -23,9 +24,9 @@ const SUGGESTIONS = [
   "EconMindset",
   "LateNightGrinder",
   "ScholarBuilder",
-  "TopperMind",
   "AmbitionFirst",
   "SATHunter",
+  "TopperMind",
 ];
 
 export function NicknameScreen() {
@@ -38,21 +39,40 @@ export function NicknameScreen() {
   const [intro, setIntro] = useState(data.shortIntro);
   const [focused, setFocused] = useState<"nick" | "intro" | null>(null);
 
-  const contentFade = useRef(new Animated.Value(0)).current;
-  const contentSlide = useRef(new Animated.Value(24)).current;
+  const fade = useRef(new Animated.Value(0)).current;
+  const slide = useRef(new Animated.Value(28)).current;
+  const previewScale = useRef(new Animated.Value(0.95)).current;
+  const previewOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(contentFade, { toValue: 1, duration: 500, useNativeDriver: true }),
-      Animated.timing(contentSlide, { toValue: 0, duration: 500, useNativeDriver: true }),
+      Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.timing(slide, { toValue: 0, duration: 500, useNativeDriver: true }),
     ]).start();
   }, []);
+
+  useEffect(() => {
+    if (nickname.trim().length > 0) {
+      Animated.parallel([
+        Animated.spring(previewScale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 6 }),
+        Animated.timing(previewOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(previewScale, { toValue: 0.95, duration: 200, useNativeDriver: true }),
+        Animated.timing(previewOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [nickname]);
 
   function handleNext() {
     if (!nickname.trim()) return;
     updateData({ nickname: nickname.trim(), shortIntro: intro.trim() });
     goNext();
   }
+
+  const avatarColor = "#6366F1";
+  const initial = nickname.trim()[0]?.toUpperCase() ?? "?";
 
   return (
     <View style={styles.screen}>
@@ -61,30 +81,61 @@ export function NicknameScreen() {
       <View style={[styles.content, { paddingTop: topPad + 16, paddingBottom: bottomPad + 16 }]}>
         <View style={styles.topBar}>
           <TouchableOpacity onPress={goBack} style={styles.backBtn}>
-            <Feather name="arrow-left" size={22} color="#8A94B0" />
+            <Feather name="chevron-left" size={24} color="#64748B" />
           </TouchableOpacity>
-          <ProgressBar current={currentStep} total={totalSteps} />
+          <View style={{ flex: 1 }}>
+            <ProgressBar current={currentStep} total={totalSteps} />
+          </View>
+          <Text style={styles.stepLabel}>{currentStep}/{totalSteps}</Text>
         </View>
 
-        <ScrollView
-          style={{ flex: 1 }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Animated.View
-            style={[{ opacity: contentFade, transform: [{ translateY: contentSlide }] }]}
-          >
-            <Text style={styles.title}>How should people{"\n"}know you?</Text>
-            <Text style={styles.subtitle}>
-              Choose a name people will remember.
-            </Text>
+        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <Animated.View style={{ opacity: fade, transform: [{ translateY: slide }] }}>
+            <Text style={styles.eyebrow}>Step {currentStep}</Text>
+            <Text style={styles.title}>How should{"\n"}people know you?</Text>
+            <Text style={styles.subtitle}>Pick a name that reflects your ambition.</Text>
 
-            <View style={[styles.inputWrapper, focused === "nick" && styles.inputFocused]}>
+            {/* Live Preview Card */}
+            <Animated.View
+              style={[
+                styles.previewCard,
+                {
+                  opacity: previewOpacity,
+                  transform: [{ scale: previewScale }],
+                },
+              ]}
+            >
+              <LinearGradient
+                colors={["rgba(30,37,80,0.9)", "rgba(20,25,55,0.95)"]}
+                style={styles.previewGradient}
+              >
+                <View style={styles.previewTop}>
+                  <LinearGradient
+                    colors={["#4F46E5", "#7C3AED"]}
+                    style={styles.previewAvatar}
+                  >
+                    <Text style={styles.previewAvatarLetter}>{initial}</Text>
+                  </LinearGradient>
+                  <View style={styles.previewInfo}>
+                    <Text style={styles.previewName}>{nickname || "Your Name"}</Text>
+                    <Text style={styles.previewIntro}>
+                      {intro || "Ambitious student · Ambit member"}
+                    </Text>
+                  </View>
+                  <View style={styles.previewBadge}>
+                    <Text style={styles.previewBadgeText}>NEW</Text>
+                  </View>
+                </View>
+              </LinearGradient>
+            </Animated.View>
+
+            {/* Nickname Input */}
+            <View style={[styles.inputGroup, focused === "nick" && styles.inputGroupFocused]}>
               <Text style={styles.inputLabel}>Nickname</Text>
               <TextInput
-                style={styles.input}
+                style={styles.textInput}
                 placeholder="e.g. FutureFounder"
-                placeholderTextColor="#555D7A"
+                placeholderTextColor="#334155"
                 value={nickname}
                 onChangeText={setNickname}
                 onFocus={() => setFocused("nick")}
@@ -98,12 +149,13 @@ export function NicknameScreen() {
               )}
             </View>
 
-            <View style={[styles.inputWrapper, focused === "intro" && styles.inputFocused]}>
-              <Text style={styles.inputLabel}>Short intro (optional)</Text>
+            {/* Intro Input */}
+            <View style={[styles.inputGroup, focused === "intro" && styles.inputGroupFocused]}>
+              <Text style={styles.inputLabel}>Short intro <Text style={styles.optional}>(optional)</Text></Text>
               <TextInput
-                style={styles.input}
+                style={styles.textInput}
                 placeholder="One line about you..."
-                placeholderTextColor="#555D7A"
+                placeholderTextColor="#334155"
                 value={intro}
                 onChangeText={setIntro}
                 onFocus={() => setFocused("intro")}
@@ -112,38 +164,15 @@ export function NicknameScreen() {
               />
             </View>
 
-            {nickname.length > 0 && (
-              <View style={styles.previewCard}>
-                <Text style={styles.previewLabel}>Preview</Text>
-                <View style={styles.previewInner}>
-                  <View style={styles.previewAvatar}>
-                    <Text style={styles.previewAvatarText}>
-                      {nickname[0]?.toUpperCase()}
-                    </Text>
-                  </View>
-                  <View>
-                    <Text style={styles.previewName}>{nickname}</Text>
-                    {intro ? (
-                      <Text style={styles.previewIntro}>{intro}</Text>
-                    ) : (
-                      <Text style={styles.previewIntroEmpty}>Ambitious student</Text>
-                    )}
-                  </View>
-                  <View style={styles.previewBadge}>
-                    <Text style={styles.previewBadgeText}>NEW</Text>
-                  </View>
-                </View>
-              </View>
-            )}
-
-            <Text style={styles.suggestionsTitle}>Suggestions</Text>
+            {/* Suggestions */}
+            <Text style={styles.suggestLabel}>Quick suggestions</Text>
             <View style={styles.pills}>
               {SUGGESTIONS.map((s) => (
                 <TouchableOpacity
                   key={s}
                   style={[styles.pill, nickname === s && styles.pillActive]}
                   onPress={() => setNickname(s)}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                 >
                   <Text style={[styles.pillText, nickname === s && styles.pillTextActive]}>
                     {s}
@@ -152,7 +181,7 @@ export function NicknameScreen() {
               ))}
             </View>
 
-            <MascotGuide message="Pick a name people will remember." style={styles.mascot} />
+            <MascotGuide message="Pick a name people will remember." compact style={styles.mascot} />
 
             <GradientButton
               label="Continue"
@@ -168,169 +197,113 @@ export function NicknameScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#0A0F1F" },
-  content: {
-    flex: 1,
-    paddingHorizontal: 24,
-  },
+  screen: { flex: 1, backgroundColor: "#050813" },
+  content: { flex: 1, paddingHorizontal: 24 },
   topBar: {
-    gap: 16,
-    marginBottom: 12,
-  },
-  backBtn: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    letterSpacing: -1,
-    marginBottom: 10,
-    lineHeight: 40,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#8A94B0",
-    marginBottom: 28,
-  },
-  inputWrapper: {
-    backgroundColor: "rgba(20,25,41,0.9)",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.07)",
-  },
-  inputFocused: {
-    borderColor: "rgba(59,130,246,0.6)",
-    backgroundColor: "rgba(20,25,41,1)",
-  },
-  inputLabel: {
-    color: "#8A94B0",
-    fontSize: 11,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  input: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  charCount: {
-    color: "#555D7A",
-    fontSize: 11,
-    textAlign: "right",
-    marginTop: 4,
-  },
-  previewCard: {
-    backgroundColor: "rgba(59,130,246,0.08)",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: "rgba(59,130,246,0.2)",
-  },
-  previewLabel: {
-    color: "#3B82F6",
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: 10,
-  },
-  previewInner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    marginBottom: 24,
   },
-  previewAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#3B82F6",
+  backBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.04)",
     alignItems: "center",
     justifyContent: "center",
   },
-  previewAvatarText: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "800",
-  },
-  previewName: {
-    color: "#FFFFFF",
-    fontSize: 16,
+  stepLabel: { color: "#334155", fontSize: 13, fontWeight: "600" },
+  eyebrow: {
+    color: "#6366F1",
+    fontSize: 12,
     fontWeight: "700",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    marginBottom: 8,
   },
-  previewIntro: {
-    color: "#8A94B0",
-    fontSize: 13,
-    marginTop: 2,
+  title: {
+    fontSize: 34,
+    fontWeight: "800",
+    color: "#F8FAFC",
+    letterSpacing: -1.2,
+    lineHeight: 40,
+    marginBottom: 10,
   },
-  previewIntroEmpty: {
-    color: "#555D7A",
-    fontSize: 13,
-    marginTop: 2,
-    fontStyle: "italic",
+  subtitle: { fontSize: 15, color: "#64748B", marginBottom: 24 },
+  previewCard: {
+    borderRadius: 20,
+    overflow: "hidden",
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "rgba(99,102,241,0.2)",
   },
+  previewGradient: { padding: 18 },
+  previewTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  previewAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  previewAvatarLetter: { color: "#fff", fontSize: 20, fontWeight: "800" },
+  previewInfo: { flex: 1 },
+  previewName: { color: "#F8FAFC", fontSize: 16, fontWeight: "700" },
+  previewIntro: { color: "#64748B", fontSize: 12, marginTop: 3 },
   previewBadge: {
-    marginLeft: "auto",
-    backgroundColor: "rgba(139,92,246,0.2)",
+    backgroundColor: "rgba(99,102,241,0.2)",
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.4)",
+    borderColor: "rgba(99,102,241,0.4)",
   },
-  previewBadgeText: {
-    color: "#8B5CF6",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  suggestionsTitle: {
-    color: "#8A94B0",
-    fontSize: 12,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 1,
+  previewBadgeText: { color: "#818CF8", fontSize: 10, fontWeight: "800", letterSpacing: 0.4 },
+  inputGroup: {
+    backgroundColor: "rgba(15,20,50,0.8)",
+    borderRadius: 16,
+    padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
   },
-  pills: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 28,
+  inputGroupFocused: {
+    borderColor: "rgba(99,102,241,0.5)",
+    backgroundColor: "rgba(20,25,65,0.9)",
   },
+  inputLabel: { color: "#475569", fontSize: 11, fontWeight: "700", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 },
+  textInput: { color: "#F1F5F9", fontSize: 17, fontWeight: "600" },
+  charCount: { color: "#334155", fontSize: 11, textAlign: "right", marginTop: 6 },
+  optional: { color: "#334155", fontStyle: "italic", textTransform: "none", letterSpacing: 0 },
+  suggestLabel: {
+    color: "#334155",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  pills: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 24 },
   pill: {
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: "rgba(30,37,68,0.8)",
+    backgroundColor: "rgba(15,20,48,0.8)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.06)",
   },
   pillActive: {
-    backgroundColor: "rgba(59,130,246,0.2)",
-    borderColor: "rgba(59,130,246,0.5)",
+    backgroundColor: "rgba(99,102,241,0.18)",
+    borderColor: "rgba(99,102,241,0.5)",
   },
-  pillText: {
-    color: "#8A94B0",
-    fontSize: 13,
-    fontWeight: "500",
-  },
-  pillTextActive: {
-    color: "#3B82F6",
-    fontWeight: "700",
-  },
-  mascot: {
-    marginBottom: 20,
-  },
-  btn: {
-    marginBottom: 24,
-  },
+  pillText: { color: "#475569", fontSize: 13, fontWeight: "500" },
+  pillTextActive: { color: "#818CF8", fontWeight: "700" },
+  mascot: { marginBottom: 20 },
+  btn: { marginBottom: 32 },
 });

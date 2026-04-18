@@ -1,3 +1,4 @@
+import { LinearGradient } from "expo-linear-gradient";
 import React, { useRef, useEffect } from "react";
 import {
   Text,
@@ -7,6 +8,7 @@ import {
   ViewStyle,
   TextStyle,
   ActivityIndicator,
+  View,
 } from "react-native";
 
 interface GradientButtonProps {
@@ -17,6 +19,7 @@ interface GradientButtonProps {
   style?: ViewStyle;
   textStyle?: TextStyle;
   variant?: "primary" | "secondary" | "ghost";
+  icon?: React.ReactNode;
 }
 
 export function GradientButton({
@@ -27,29 +30,33 @@ export function GradientButton({
   style,
   textStyle,
   variant = "primary",
+  icon,
 }: GradientButtonProps) {
   const scale = useRef(new Animated.Value(1)).current;
-  const glow = useRef(new Animated.Value(0)).current;
+  const shimmer = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (variant === "primary") {
       Animated.loop(
         Animated.sequence([
-          Animated.timing(glow, { toValue: 1, duration: 2000, useNativeDriver: true }),
-          Animated.timing(glow, { toValue: 0, duration: 2000, useNativeDriver: true }),
+          Animated.timing(shimmer, { toValue: 1, duration: 2400, useNativeDriver: true }),
+          Animated.timing(shimmer, { toValue: 0, duration: 2400, useNativeDriver: true }),
         ])
       ).start();
     }
   }, []);
 
-  const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
+  const shimmerOpacity = shimmer.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.85, 1, 0.85],
+  });
 
   function handlePressIn() {
     Animated.spring(scale, {
-      toValue: 0.96,
+      toValue: 0.965,
       useNativeDriver: true,
-      speed: 50,
-      bounciness: 4,
+      speed: 60,
+      bounciness: 3,
     }).start();
   }
 
@@ -57,76 +64,125 @@ export function GradientButton({
     Animated.spring(scale, {
       toValue: 1,
       useNativeDriver: true,
-      speed: 40,
-      bounciness: 6,
+      speed: 35,
+      bounciness: 8,
     }).start();
   }
 
-  const containerStyle =
-    variant === "primary"
-      ? styles.primaryContainer
-      : variant === "secondary"
-      ? styles.secondaryContainer
-      : styles.ghostContainer;
+  if (variant === "primary") {
+    return (
+      <Animated.View
+        style={[
+          styles.shadowWrap,
+          { transform: [{ scale }], opacity: disabled ? 0.45 : shimmerOpacity },
+          style,
+        ]}
+      >
+        <TouchableOpacity
+          onPress={onPress}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          disabled={disabled || loading}
+          activeOpacity={1}
+          style={styles.touchable}
+        >
+          <LinearGradient
+            colors={["#3B82F6", "#6366F1", "#8B5CF6"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.primaryGradient}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <View style={styles.buttonInner}>
+                {icon}
+                <Text style={[styles.primaryLabel, textStyle]}>{label}</Text>
+              </View>
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  }
 
-  const labelStyle =
-    variant === "primary"
-      ? styles.primaryLabel
-      : variant === "secondary"
-      ? styles.secondaryLabel
-      : styles.ghostLabel;
+  if (variant === "secondary") {
+    return (
+      <Animated.View style={[{ transform: [{ scale }] }, style]}>
+        <TouchableOpacity
+          style={styles.secondaryContainer}
+          onPress={onPress}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          disabled={disabled || loading}
+          activeOpacity={0.9}
+        >
+          <Text style={styles.secondaryLabel}>{label}</Text>
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  }
 
   return (
-    <Animated.View
-      style={[
-        styles.wrapper,
-        { transform: [{ scale }], opacity: disabled ? 0.5 : glowOpacity },
-        style,
-      ]}
-    >
+    <Animated.View style={[{ transform: [{ scale }] }, style]}>
       <TouchableOpacity
-        style={[containerStyle]}
+        style={styles.ghostContainer}
         onPress={onPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         disabled={disabled || loading}
-        activeOpacity={1}
+        activeOpacity={0.7}
       >
-        {loading ? (
-          <ActivityIndicator color={variant === "primary" ? "#fff" : "#3B82F6"} />
-        ) : (
-          <Text style={[labelStyle, textStyle]}>{label}</Text>
-        )}
+        <Text style={styles.ghostLabel}>{label}</Text>
       </TouchableOpacity>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    borderRadius: 16,
+  shadowWrap: {
+    borderRadius: 18,
+    shadowColor: "#6366F1",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.55,
+    shadowRadius: 28,
+    elevation: 14,
+  },
+  touchable: {
+    borderRadius: 18,
     overflow: "hidden",
   },
-  primaryContainer: {
-    height: 56,
+  primaryGradient: {
+    height: 58,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 16,
-    backgroundColor: "#3B82F6",
-    shadowColor: "#3B82F6",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 10,
+  },
+  buttonInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  primaryLabel: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
   secondaryContainer: {
-    height: 52,
+    height: 54,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 16,
-    backgroundColor: "rgba(59,130,246,0.12)",
+    borderRadius: 18,
+    backgroundColor: "rgba(59,130,246,0.1)",
     borderWidth: 1,
-    borderColor: "rgba(59,130,246,0.3)",
+    borderColor: "rgba(99,102,241,0.35)",
+  },
+  secondaryLabel: {
+    color: "#818CF8",
+    fontSize: 16,
+    fontWeight: "600",
+    letterSpacing: 0.1,
   },
   ghostContainer: {
     height: 48,
@@ -135,20 +191,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: "transparent",
   },
-  primaryLabel: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
-  secondaryLabel: {
-    color: "#3B82F6",
-    fontSize: 16,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
   ghostLabel: {
-    color: "#8A94B0",
+    color: "#555D7A",
     fontSize: 15,
     fontWeight: "500",
   },
