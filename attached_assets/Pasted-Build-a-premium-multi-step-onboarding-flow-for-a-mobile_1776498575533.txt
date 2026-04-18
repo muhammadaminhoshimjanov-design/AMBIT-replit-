@@ -1,0 +1,398 @@
+Build a premium multi-step onboarding flow for a mobile-first app called “Ambit”.
+
+GOAL:
+This onboarding should make the student feel understood, welcomed, and excited. It should not feel like a boring signup flow. It should feel like entering a high-quality, ambitious student network. The onboarding must introduce the app gradually, personalize the experience, and set up the user profile in a way that increases attachment from the first minute.
+
+IMPORTANT PRODUCT FEEL:
+- Premium
+- Modern
+- Smooth
+- Slightly elite
+- Student-focused
+- Ambitious but not arrogant
+- Warm and motivating
+- High-end startup feel
+- Not childish
+- Not generic education-app style
+
+CORE VISUAL IDENTITY:
+App name: Ambit
+Mascot: a friendly, confident lion wearing a cap/hat with the Ambit logo on it
+Mascot role: guide the student through onboarding step by step
+The lion should feel smart, motivating, and welcoming — like a mentor/guide, not like a cartoon clown
+
+OVERALL UI STYLE:
+- Dark luxury UI
+- Deep navy to blue-purple gradients
+- Soft glows
+- Smooth card-based layouts
+- Rounded corners
+- Premium typography
+- Excellent spacing and breathing room
+- Microinteractions on buttons, cards, toggles, and page transitions
+- App Store quality onboarding
+- Highly polished animations
+
+GLOBAL DESIGN SYSTEM:
+Background:
+- base gradient from #0A0F1F to #1A1F3C
+- subtle ambient blue-violet glows
+- very faint floating circles / connection shapes in background
+- optional slow parallax / floating background motion
+
+Typography:
+- clean sans-serif
+- strong hierarchy
+- bold hero titles
+- soft gray secondary text
+- premium spacing and line-height
+
+Buttons:
+- rounded rectangle buttons
+- gradient fill from #3B82F6 to #8B5CF6
+- soft glow
+- animated hover / press states
+- scale slightly on tap
+- premium ripple or glow pulse on press
+- disabled states should still look elegant
+
+Transitions:
+- smooth screen-to-screen animation
+- fade + slight slide
+- content should animate in sequence
+- mascot can subtly change pose or expression between steps
+
+MASCOT:
+Create a lion mascot presence across onboarding:
+- appears on each page in a slightly different pose or placement
+- gives short supportive guidance
+- looks premium and polished
+- hat/cap includes Ambit branding/logo
+- use mascot in speech-bubble style prompts or compact guide cards
+- mascot should not overcrowd the screen
+
+ONBOARDING STRUCTURE:
+Create 7 onboarding / setup screens in this exact order:
+
+--------------------------------------------------
+SCREEN 1 — WELCOME / FIRST IMPRESSION
+--------------------------------------------------
+Purpose:
+Create emotional first impression and brand identity.
+
+Content:
+Title: Ambit
+Tagline: For students who want more.
+Supporting line: Discuss. Connect. Grow.
+Primary button: Get Started
+
+Mascot:
+Lion appears subtly on the lower side or in a floating guide bubble with a line like:
+“Welcome to Ambit. Let’s build your space.”
+
+Design:
+- Hero-focused
+- Minimal text
+- Strong visual hierarchy
+- Premium glow around CTA
+- Very elegant intro animation
+
+Microinteractions:
+- title fades/slides in
+- supporting text appears after
+- button glows softly
+- mascot appears with subtle motion
+
+--------------------------------------------------
+SCREEN 2 — ACCOUNT START / GMAIL VERIFICATION
+--------------------------------------------------
+Purpose:
+Start account creation with smooth trust-building flow.
+
+Content:
+Title: Let’s get you in
+Subtitle: Use your Gmail to begin your Ambit journey.
+Options:
+- Continue with Gmail
+- Continue with email (optional secondary)
+Small note:
+“We’ll use this to secure your account and personalize your experience.”
+
+After Gmail selection:
+Show verification state:
+- “Verifying your account…”
+- success animation
+- then proceed
+
+Mascot:
+Lion line:
+“Secure start. Smart move.”
+
+Design:
+- clean auth card
+- elegant Gmail button
+- subtle verification animation
+- premium loading / success feedback
+- no boring auth form feeling
+
+IMPORTANT:
+Make this feel very smooth and modern, not like a plain login form.
+
+--------------------------------------------------
+SCREEN 3 — NICKNAME + IDENTITY SETUP
+--------------------------------------------------
+Purpose:
+Let the student choose how they appear in the community.
+
+Content:
+Title: How should people know you?
+Fields:
+- Nickname / display name
+- optional short status / one-line intro
+
+Examples:
+- FutureFounder
+- IvyDreamer
+- EconMindset
+- LateNightGrinder
+
+UI extras:
+- live preview of username card
+- optional suggestions generated based on ambition/student vibe
+
+Mascot:
+Lion line:
+“Pick a name people will remember.”
+
+Design:
+- elegant input fields
+- live preview card
+- animated cursor/focus states
+- suggestions in pill buttons
+- premium validation feedback
+
+--------------------------------------------------
+SCREEN 4 — PROFILE PHOTO SETUP
+--------------------------------------------------
+Purpose:
+Help users feel ownership over their profile.
+
+Content:
+Title: Add your profile look
+Subtitle: A photo makes your journey more personal.
+Options:
+- Upload photo
+- Choose avatar style
+- Skip for now
+
+UI idea:
+- circular photo frame preview
+- subtle glowing border around active frame
+- if no image uploaded, show premium placeholder
+- optional avatar presets if they skip real photo
+
+Mascot:
+Lion line:
+“Your profile, your presence.”
+
+Design:
+- polished image upload experience
+- smooth crop/preview animation
+- avatar cards if user prefers not to upload
+
+IMPORTANT:
+Make this safe, simple, and visually clean.
+Do not force image upload.
+
+--------------------------------------------------
+SCREEN 5 — GOALS + STUDENT FOCUS
+--------------------------------------------------
+Purpose:
+Understand what the student cares about.
+
+Content:
+Title: What are you focused on right now?
+Multi-select cards:
+- SAT / Exams
+- Universities
+- Scholarships
+- Essays
+- Self-growth
+- Career direction
+- Student life
+- Productivity
+
+Secondary question:
+“What describes you best?”
+Single-select:
+- I’m just starting
+- I want to improve fast
+- I’m highly ambitious
+- I want serious people around me
+
+Mascot:
+Lion line:
+“This helps me build your feed.”
+
+Design:
+- premium multi-select cards
+- beautiful active states
+- icons optional but subtle
+- cards animate slightly when selected
+
+--------------------------------------------------
+SCREEN 6 — FAMILY / CIRCLE PREFERENCES
+--------------------------------------------------
+Purpose:
+Match users to their first communities.
+
+Content:
+Title: Choose your first circles
+Subtitle: Start with people who match your energy.
+User can select preferred families/circles such as:
+- SAT 1500+
+- Ivy / Top Universities
+- Business & Economics
+- STEM Builders
+- Scholarship Hunters
+- Self-Improvement
+- International Students
+- Productivity Circle
+- Future Entrepreneurs
+- Essay & Applications
+
+Also add preference settings:
+- Small close-knit circles
+- Competitive circles
+- Supportive circles
+- Mixed-energy circles
+
+Optional:
+“How many circles do you want to start with?”
+- 1
+- 2
+- 3+
+
+Mascot:
+Lion line:
+“Your people are waiting.”
+
+Design:
+- premium community cards
+- show mini previews / member vibe
+- selection feels meaningful
+- recommendation badge like “Best match”
+
+--------------------------------------------------
+SCREEN 7 — FINAL PROFILE SUMMARY + ENTER APP
+--------------------------------------------------
+Purpose:
+Make the user feel ready and excited before entering the app.
+
+Content:
+Title: You’re in
+Subtitle: Your Ambit journey starts now.
+Show beautiful summary card:
+- nickname
+- profile photo/avatar
+- selected goals
+- chosen circles
+- verified badge / account ready state
+
+Main CTA:
+Enter Ambit
+
+Optional secondary:
+Edit setup
+
+Mascot:
+Lion line:
+“You’re not alone anymore. Let’s begin.”
+
+Design:
+- celebratory but elegant
+- no childish confetti overload
+- subtle success glow
+- premium completion state
+- summary should feel satisfying and polished
+
+--------------------------------------------------
+EXTRA PREMIUM DESIGN REQUIREMENTS
+--------------------------------------------------
+Add the following premium touches across all onboarding screens:
+
+1. BUTTON ANIMATIONS
+- gradient shimmer on hover
+- subtle lift on press
+- glow pulse on active state
+- smooth spring animation
+- no cheap flashy effects
+
+2. CARD ANIMATIONS
+- cards should slightly lift when selected
+- active cards get glow border or gradient outline
+- subtle shadow movement
+
+3. PAGE TRANSITIONS
+- slide + fade transitions
+- progress should feel seamless
+- no abrupt reload feeling
+
+4. PROGRESS INDICATOR
+- elegant onboarding progress bar or step indicator
+- should feel premium, not childish
+- maybe small dots or a top gradient line
+
+5. MASCOT INTERACTION
+- mascot can subtly animate
+- blink, nod, point, or shift pose
+- mascot messages should be short and emotionally smart
+- mascot should help create comfort and identity
+
+6. FEEDBACK STATES
+- field validation should feel elegant
+- loading states should be premium skeleton/loading glow
+- success states should feel refined
+
+7. PERSONALIZATION
+By the end of onboarding, the app should be ready to customize:
+- feed recommendations
+- circle suggestions
+- future discussion prompts
+- profile identity
+
+--------------------------------------------------
+POST-ONBOARDING TECH/UX REQUIREMENTS
+--------------------------------------------------
+Prepare data structure so onboarding saves:
+- verified email
+- nickname
+- short intro
+- photo/avatar
+- focus topics
+- student identity type
+- selected circles
+- circle preference style
+
+Make onboarding modular so more steps can be added later.
+
+Allow back navigation between steps without losing progress.
+
+Make the whole onboarding mobile-first and visually stunning.
+
+--------------------------------------------------
+FINAL DELIVERABLE
+--------------------------------------------------
+Generate the complete onboarding experience code for all 7 screens, with:
+- polished UI
+- reusable components
+- premium animations
+- mascot guide blocks
+- progress tracking
+- editable state management
+- responsive mobile layout
+
+IMPORTANT FINAL INSTRUCTION:
+This onboarding should feel like the user is entering a serious, inspiring network built specifically for ambitious students.
+Do not make it look like a normal signup flow.
+Make it memorable, emotional, polished, and high-end.
