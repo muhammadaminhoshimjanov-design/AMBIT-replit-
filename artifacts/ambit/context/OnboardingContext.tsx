@@ -28,12 +28,12 @@ const defaultData: OnboardingData = {
   nickname: "",
   shortIntro: "",
   photoUri: null,
-  avatarStyle: null,
+  avatarStyle: "A",
   focusTopics: [],
   studentIdentity: "",
   circles: [],
   circlePreference: "",
-  circleCount: "",
+  circleCount: "2",
 };
 
 const OnboardingContext = createContext<OnboardingContextType | null>(null);
@@ -47,7 +47,7 @@ export function OnboardingProvider({
 }) {
   const [data, setData] = useState<OnboardingData>(defaultData);
   const [currentStep, setCurrentStep] = useState(0);
-  const totalSteps = 7;
+  const totalSteps = 6;
 
   function updateData(updates: Partial<OnboardingData>) {
     setData((prev) => ({ ...prev, ...updates }));

@@ -12,7 +12,7 @@ import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-
+import { AuthProvider } from "@/context/AuthContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 SplashScreen.preventAutoHideAsync();
@@ -41,9 +41,11 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
-              <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="index" options={{ headerShown: false }} />
-              </Stack>
+              <AuthProvider>
+                <Stack screenOptions={{ headerShown: false }}>
+                  <Stack.Screen name="index" options={{ headerShown: false }} />
+                </Stack>
+              </AuthProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>

@@ -17,6 +17,8 @@ import { MascotGuide } from "@/components/MascotGuide";
 import { ProgressBar } from "@/components/ProgressBar";
 import { SelectableCard } from "@/components/SelectableCard";
 import { useOnboarding } from "@/context/OnboardingContext";
+import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabase";
 
 const FOCUS_TOPICS = [
   "SAT / Exams",
@@ -38,12 +40,14 @@ const IDENTITIES = [
 
 export function GoalsScreen() {
   const { goNext, goBack, updateData, data, currentStep, totalSteps } = useOnboarding();
+  const { user, refreshProfile } = useAuth();
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   const [topics, setTopics] = useState<string[]>(data.focusTopics);
   const [identity, setIdentity] = useState(data.studentIdentity);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fade = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(28)).current;
 
@@ -55,23 +59,33 @@ export function GoalsScreen() {
   }, []);
 
   function toggleTopic(t: string) {
-    setTopics((prev) =>
-      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
-    );
+    setTopics((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]);
   }
 
-  function handleNext() {
+  async function handleNext() {
+    setSaving(true);
+    setError(null);
+    if (user) {
+      const { error: err } = await supabase
+        .from("profiles")
+        .upsert({
+          id: user.id,
+          email: user.email!,
+          focus_topics: topics,
+          student_identity: identity,
+        }, { onConflict: "id" });
+      if (err) { setError(err.message); setSaving(false); return; }
+      await refreshProfile();
+    }
     updateData({ focusTopics: topics, studentIdentity: identity });
+    setSaving(false);
     goNext();
   }
-
-  const canContinue = topics.length > 0 && !!identity;
 
   return (
     <View style={styles.screen}>
       <GradientBackground />
-
-      <View style={[styles.content, { paddingTop: topPad + 16, paddingBottom: bottomPad + 16 }]}>
+      <View style={[styles.content, { paddingTop: topPad + 16, paddingBottom: 16 }]}>
         <View style={styles.topBar}>
           <TouchableOpacity onPress={goBack} style={styles.backBtn}>
             <Feather name="chevron-left" size={24} color="#64748B" />
@@ -88,7 +102,6 @@ export function GoalsScreen() {
             <Text style={styles.title}>What are you{"\n"}focused on?</Text>
             <Text style={styles.subtitle}>Select everything that applies to you now.</Text>
 
-            {/* Focus Grid */}
             <View style={styles.grid}>
               {FOCUS_TOPICS.map((topic) => (
                 <View key={topic} style={styles.gridCell}>
@@ -101,7 +114,6 @@ export function GoalsScreen() {
               ))}
             </View>
 
-            {/* Selection count pill */}
             {topics.length > 0 && (
               <View style={styles.countPill}>
                 <Feather name="check-circle" size={13} color="#22D3EE" />
@@ -109,7 +121,6 @@ export function GoalsScreen() {
               </View>
             )}
 
-            {/* Identity section */}
             <Text style={styles.sectionTitle}>What drives you most?</Text>
 
             <View style={styles.identityList}>
@@ -123,12 +134,15 @@ export function GoalsScreen() {
               ))}
             </View>
 
+            {error && <Text style={styles.errorText}>{error}</Text>}
+
             <MascotGuide message="This helps me build your feed." compact style={styles.mascot} />
 
             <GradientButton
               label="Continue"
               onPress={handleNext}
-              disabled={!canContinue}
+              disabled={topics.length === 0}
+              loading={saving}
               style={styles.btn}
             />
           </Animated.View>
@@ -197,68 +211,51 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 38, height: 38, borderRadius: 19,
     backgroundColor: "rgba(255,255,255,0.04)",
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: "center", justifyContent: "center",
   },
   stepLabel: { color: "#334155", fontSize: 13, fontWeight: "600" },
   eyebrow: {
-    color: "#6366F1",
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    marginBottom: 8,
+    color: "#6366F1", fontSize: 12, fontWeight: "700",
+    letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8,
   },
   title: {
-    fontSize: 34,
-    fontWeight: "800",
-    color: "#F8FAFC",
-    letterSpacing: -1.2,
-    lineHeight: 40,
-    marginBottom: 10,
+    fontSize: 34, fontWeight: "800", color: "#F8FAFC",
+    letterSpacing: -1.2, lineHeight: 40, marginBottom: 10,
   },
   subtitle: { fontSize: 15, color: "#64748B", marginBottom: 22 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 14 },
   gridCell: { width: "47%" },
   countPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
+    flexDirection: "row", alignItems: "center", gap: 6,
     alignSelf: "flex-start",
-    backgroundColor: "rgba(34,211,238,0.08)",
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: "rgba(34,211,238,0.2)",
+    backgroundColor: "rgba(34,211,238,0.08)", borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 6, marginBottom: 24,
+    borderWidth: 1, borderColor: "rgba(34,211,238,0.2)",
   },
   countText: { color: "#22D3EE", fontSize: 12, fontWeight: "700" },
   sectionTitle: { fontSize: 20, fontWeight: "700", color: "#E2E8F0", marginBottom: 14 },
   identityList: { gap: 10, marginBottom: 24 },
   idCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    overflow: "hidden",
+    borderRadius: 18, borderWidth: 1, overflow: "hidden",
     backgroundColor: "rgba(14,19,48,0.8)",
   },
   idInner: { flexDirection: "row", alignItems: "center", gap: 14, padding: 16 },
   idIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 42, height: 42, borderRadius: 21,
     backgroundColor: "rgba(255,255,255,0.04)",
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: "center", justifyContent: "center",
   },
   idIconSelected: { backgroundColor: "rgba(99,102,241,0.14)" },
   idLabel: { color: "#94A3B8", fontSize: 15, fontWeight: "600", marginBottom: 3 },
   idLabelSelected: { color: "#F1F5F9" },
   idDesc: { color: "#334155", fontSize: 12 },
+  errorText: {
+    color: "#EF4444", fontSize: 13,
+    backgroundColor: "rgba(239,68,68,0.08)", borderRadius: 10,
+    padding: 10, marginBottom: 12,
+  },
   mascot: { marginBottom: 20 },
   btn: { marginBottom: 32 },
 });

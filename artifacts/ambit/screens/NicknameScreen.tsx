@@ -17,6 +17,8 @@ import { GradientButton } from "@/components/GradientButton";
 import { MascotGuide } from "@/components/MascotGuide";
 import { ProgressBar } from "@/components/ProgressBar";
 import { useOnboarding } from "@/context/OnboardingContext";
+import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabase";
 
 const SUGGESTIONS = [
   "FutureFounder",
@@ -31,13 +33,15 @@ const SUGGESTIONS = [
 
 export function NicknameScreen() {
   const { goNext, goBack, updateData, data, currentStep, totalSteps } = useOnboarding();
+  const { user, refreshProfile } = useAuth();
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   const [nickname, setNickname] = useState(data.nickname);
   const [intro, setIntro] = useState(data.shortIntro);
   const [focused, setFocused] = useState<"nick" | "intro" | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fade = useRef(new Animated.Value(0)).current;
   const slide = useRef(new Animated.Value(28)).current;
@@ -65,20 +69,30 @@ export function NicknameScreen() {
     }
   }, [nickname]);
 
-  function handleNext() {
+  async function handleNext() {
     if (!nickname.trim()) return;
+    setSaving(true);
+    setError(null);
+    const updates = { nickname: nickname.trim(), bio: intro.trim() };
+    if (user) {
+      const { error: err } = await supabase
+        .from("profiles")
+        .upsert({ id: user.id, email: user.email!, ...updates }, { onConflict: "id" });
+      if (err) { setError(err.message); setSaving(false); return; }
+      await refreshProfile();
+    }
     updateData({ nickname: nickname.trim(), shortIntro: intro.trim() });
+    setSaving(false);
     goNext();
   }
 
-  const avatarColor = "#6366F1";
   const initial = nickname.trim()[0]?.toUpperCase() ?? "?";
 
   return (
     <View style={styles.screen}>
       <GradientBackground />
 
-      <View style={[styles.content, { paddingTop: topPad + 16, paddingBottom: bottomPad + 16 }]}>
+      <View style={[styles.content, { paddingTop: topPad + 16, paddingBottom: 24 }]}>
         <View style={styles.topBar}>
           <TouchableOpacity onPress={goBack} style={styles.backBtn}>
             <Feather name="chevron-left" size={24} color="#64748B" />
@@ -95,25 +109,15 @@ export function NicknameScreen() {
             <Text style={styles.title}>How should{"\n"}people know you?</Text>
             <Text style={styles.subtitle}>Pick a name that reflects your ambition.</Text>
 
-            {/* Live Preview Card */}
             <Animated.View
-              style={[
-                styles.previewCard,
-                {
-                  opacity: previewOpacity,
-                  transform: [{ scale: previewScale }],
-                },
-              ]}
+              style={[styles.previewCard, { opacity: previewOpacity, transform: [{ scale: previewScale }] }]}
             >
               <LinearGradient
                 colors={["rgba(30,37,80,0.9)", "rgba(20,25,55,0.95)"]}
                 style={styles.previewGradient}
               >
                 <View style={styles.previewTop}>
-                  <LinearGradient
-                    colors={["#4F46E5", "#7C3AED"]}
-                    style={styles.previewAvatar}
-                  >
+                  <LinearGradient colors={["#4F46E5", "#7C3AED"]} style={styles.previewAvatar}>
                     <Text style={styles.previewAvatarLetter}>{initial}</Text>
                   </LinearGradient>
                   <View style={styles.previewInfo}>
@@ -129,7 +133,6 @@ export function NicknameScreen() {
               </LinearGradient>
             </Animated.View>
 
-            {/* Nickname Input */}
             <View style={[styles.inputGroup, focused === "nick" && styles.inputGroupFocused]}>
               <Text style={styles.inputLabel}>Nickname</Text>
               <TextInput
@@ -149,9 +152,10 @@ export function NicknameScreen() {
               )}
             </View>
 
-            {/* Intro Input */}
             <View style={[styles.inputGroup, focused === "intro" && styles.inputGroupFocused]}>
-              <Text style={styles.inputLabel}>Short intro <Text style={styles.optional}>(optional)</Text></Text>
+              <Text style={styles.inputLabel}>
+                Short intro <Text style={styles.optional}>(optional)</Text>
+              </Text>
               <TextInput
                 style={styles.textInput}
                 placeholder="One line about you..."
@@ -164,7 +168,8 @@ export function NicknameScreen() {
               />
             </View>
 
-            {/* Suggestions */}
+            {error && <Text style={styles.errorText}>{error}</Text>}
+
             <Text style={styles.suggestLabel}>Quick suggestions</Text>
             <View style={styles.pills}>
               {SUGGESTIONS.map((s) => (
@@ -174,9 +179,7 @@ export function NicknameScreen() {
                   onPress={() => setNickname(s)}
                   activeOpacity={0.75}
                 >
-                  <Text style={[styles.pillText, nickname === s && styles.pillTextActive]}>
-                    {s}
-                  </Text>
+                  <Text style={[styles.pillText, nickname === s && styles.pillTextActive]}>{s}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -187,6 +190,7 @@ export function NicknameScreen() {
               label="Continue"
               onPress={handleNext}
               disabled={!nickname.trim()}
+              loading={saving}
               style={styles.btn}
             />
           </Animated.View>
@@ -239,11 +243,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(99,102,241,0.2)",
   },
   previewGradient: { padding: 18 },
-  previewTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
+  previewTop: { flexDirection: "row", alignItems: "center", gap: 14 },
   previewAvatar: {
     width: 48,
     height: 48,
@@ -276,10 +276,25 @@ const styles = StyleSheet.create({
     borderColor: "rgba(99,102,241,0.5)",
     backgroundColor: "rgba(20,25,65,0.9)",
   },
-  inputLabel: { color: "#475569", fontSize: 11, fontWeight: "700", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 },
+  inputLabel: {
+    color: "#475569",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 8,
+  },
   textInput: { color: "#F1F5F9", fontSize: 17, fontWeight: "600" },
   charCount: { color: "#334155", fontSize: 11, textAlign: "right", marginTop: 6 },
   optional: { color: "#334155", fontStyle: "italic", textTransform: "none", letterSpacing: 0 },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 13,
+    backgroundColor: "rgba(239,68,68,0.08)",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+  },
   suggestLabel: {
     color: "#334155",
     fontSize: 11,
