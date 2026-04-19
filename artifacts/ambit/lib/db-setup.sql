@@ -111,6 +111,28 @@ create policy "Likes readable" on public.post_likes for select using (true);
 create policy "Likes insertable" on public.post_likes for insert with check (auth.uid() = user_id);
 create policy "Likes deletable" on public.post_likes for delete using (auth.uid() = user_id);
 
+-- toggle_like function (SECURITY DEFINER bypasses RLS so it can update like_count on any post)
+create or replace function toggle_like(p_post_id uuid, p_user_id uuid)
+returns json
+language plpgsql security definer
+as $$
+declare
+  existing_like record;
+  new_count integer;
+begin
+  select * into existing_like from public.post_likes where post_id = p_post_id and user_id = p_user_id;
+  if found then
+    delete from public.post_likes where post_id = p_post_id and user_id = p_user_id;
+    update public.posts set like_count = greatest(0, like_count - 1) where id = p_post_id returning like_count into new_count;
+    return json_build_object('liked', false, 'like_count', new_count);
+  else
+    insert into public.post_likes(post_id, user_id) values(p_post_id, p_user_id) on conflict do nothing;
+    update public.posts set like_count = like_count + 1 where id = p_post_id returning like_count into new_count;
+    return json_build_object('liked', true, 'like_count', new_count);
+  end if;
+end;
+$$;
+
 -- Follows
 create policy "Follows readable" on public.follows for select using (true);
 create policy "Follows insertable" on public.follows for insert with check (auth.uid() = follower_id);

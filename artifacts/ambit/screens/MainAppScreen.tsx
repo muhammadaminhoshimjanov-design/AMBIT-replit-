@@ -11,13 +11,13 @@ import {
   TextInput,
   Modal,
   KeyboardAvoidingView,
-  Alert,
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { GradientBackground } from "@/components/GradientBackground";
+import { UserProfileModal } from "@/components/UserProfileModal";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 
@@ -37,6 +37,8 @@ const POST_TYPES = [
   { id: "general", label: "General", icon: "message-circle", color: "#8B5CF6" },
 ];
 
+type FeedFilter = "all" | "circles" | "following";
+
 interface Post {
   id: string;
   author_id: string;
@@ -51,14 +53,6 @@ interface Post {
   liked?: boolean;
 }
 
-interface Comment {
-  id: string;
-  content: string;
-  created_at: string;
-  author_id: string;
-  profiles?: { nickname: string | null; avatar_style: string | null };
-}
-
 export function MainAppScreen() {
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -67,20 +61,47 @@ export function MainAppScreen() {
 
   const [posts, setPosts] = useState<Post[]>([]);
   const [myCircles, setMyCircles] = useState<{ id: string; name: string }[]>([]);
+  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showCreatePost, setShowCreatePost] = useState(false);
   const [activeTab, setActiveTab] = useState<"feed" | "circles" | "profile">("feed");
+  const [feedFilter, setFeedFilter] = useState<FeedFilter>("all");
+  const [viewingUserId, setViewingUserId] = useState<string | null>(null);
 
   const fadeIn = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadData();
     Animated.timing(fadeIn, { toValue: 1, duration: 700, useNativeDriver: true }).start();
+
+    // Realtime subscription for new posts
+    const channel = supabase
+      .channel("posts-feed")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "posts" },
+        (payload) => {
+          // Fetch the full post with joins and prepend
+          supabase
+            .from("posts")
+            .select("*, profiles(nickname, avatar_style), circles(name)")
+            .eq("id", payload.new.id)
+            .single()
+            .then(({ data }) => {
+              if (data) {
+                setPosts((prev) => [{ ...data, liked: false }, ...prev]);
+              }
+            });
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   async function loadData() {
-    await Promise.all([loadPosts(), loadMyCircles()]);
+    await Promise.all([loadPosts(), loadMyCircles(), loadFollowing()]);
     setLoading(false);
   }
 
@@ -89,16 +110,13 @@ export function MainAppScreen() {
       .from("posts")
       .select("*, profiles(nickname, avatar_style), circles(name)")
       .order("created_at", { ascending: false })
-      .limit(30);
+      .limit(50);
     if (!data) return;
 
-    // Check which ones the current user liked
     const ids = data.map((p: Post) => p.id);
-    const { data: likes } = await supabase
-      .from("post_likes")
-      .select("post_id")
-      .eq("user_id", user!.id)
-      .in("post_id", ids);
+    const { data: likes } = user
+      ? await supabase.from("post_likes").select("post_id").eq("user_id", user.id).in("post_id", ids)
+      : { data: [] };
     const likedSet = new Set((likes ?? []).map((l: any) => l.post_id));
     setPosts(data.map((p: Post) => ({ ...p, liked: likedSet.has(p.id) })));
   }
@@ -108,8 +126,15 @@ export function MainAppScreen() {
       .from("circle_members")
       .select("circles(id, name)")
       .eq("user_id", user!.id);
-    const circles = (data ?? []).map((r: any) => r.circles).filter(Boolean);
-    setMyCircles(circles);
+    setMyCircles((data ?? []).map((r: any) => r.circles).filter(Boolean));
+  }
+
+  async function loadFollowing() {
+    const { data } = await supabase
+      .from("follows")
+      .select("following_id")
+      .eq("follower_id", user!.id);
+    setFollowingIds(new Set((data ?? []).map((r: any) => r.following_id)));
   }
 
   async function onRefresh() {
@@ -119,8 +144,8 @@ export function MainAppScreen() {
   }
 
   async function handleLike(post: Post) {
-    const wasLiked = post.liked;
     // Optimistic update
+    const wasLiked = post.liked;
     setPosts((prev) =>
       prev.map((p) =>
         p.id === post.id
@@ -128,17 +153,39 @@ export function MainAppScreen() {
           : p
       )
     );
-    if (wasLiked) {
-      await supabase.from("post_likes").delete().eq("post_id", post.id).eq("user_id", user!.id);
-      await supabase.from("posts").update({ like_count: post.like_count - 1 }).eq("id", post.id);
-    } else {
-      await supabase.from("post_likes").upsert({ post_id: post.id, user_id: user!.id }, { onConflict: "post_id,user_id" });
-      await supabase.from("posts").update({ like_count: post.like_count + 1 }).eq("id", post.id);
+    // Call secure toggle_like RPC (handles both post_likes and like_count atomically)
+    const { data } = await supabase.rpc("toggle_like", {
+      p_post_id: post.id,
+      p_user_id: user!.id,
+    });
+    // Sync with server result in case of discrepancy
+    if (data) {
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === post.id
+            ? { ...p, liked: data.liked, like_count: data.like_count }
+            : p
+        )
+      );
     }
   }
 
+  // Filtered posts based on active feed tab
+  const filteredPosts = (() => {
+    if (feedFilter === "circles") {
+      const myCircleIds = new Set(myCircles.map((c) => c.id));
+      return posts.filter((p) => p.circle_id && myCircleIds.has(p.circle_id));
+    }
+    if (feedFilter === "following") {
+      return posts.filter((p) => followingIds.has(p.author_id) || p.author_id === user!.id);
+    }
+    return posts;
+  })();
+
   const palette = PALETTES[profile?.avatar_style ?? "A"] ?? PALETTES["A"];
   const initial = profile?.nickname?.[0]?.toUpperCase() ?? "A";
+
+  const handleFollowChange = useCallback(() => { loadFollowing(); }, []);
 
   return (
     <View style={styles.screen}>
@@ -150,15 +197,18 @@ export function MainAppScreen() {
           <View>
             <Text style={styles.appName}>Ambit</Text>
             <Text style={styles.headerSub}>
-              {activeTab === "feed" ? "Your network" : activeTab === "circles" ? "Your circles" : "Your profile"}
+              {activeTab === "feed" ? "Your network" : activeTab === "circles" ? "Circles" : "Profile"}
             </Text>
           </View>
           <View style={styles.headerRight}>
             <TouchableOpacity style={styles.iconBtn} onPress={() => setShowCreatePost(true)}>
               <Feather name="edit" size={19} color="#818CF8" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.avatarSmall} onPress={() => setActiveTab("profile")}>
-              <LinearGradient colors={palette} style={styles.avatarGrad}>
+            <TouchableOpacity
+              onPress={() => setActiveTab("profile")}
+              style={styles.avatarSmallWrap}
+            >
+              <LinearGradient colors={palette} style={styles.avatarSmall}>
                 <Text style={styles.avatarSmallText}>{initial}</Text>
               </LinearGradient>
             </TouchableOpacity>
@@ -186,26 +236,28 @@ export function MainAppScreen() {
               <Text style={[styles.tabLabel, activeTab === tab.id && styles.tabLabelActive]}>
                 {tab.label}
               </Text>
-              {activeTab === tab.id && <View style={styles.tabDot} />}
+              {activeTab === tab.id && <View style={styles.tabUnderline} />}
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* Content */}
         {loading ? (
           <View style={styles.loadingCenter}>
             <ActivityIndicator color="#6366F1" size="large" />
           </View>
         ) : activeTab === "feed" ? (
           <FeedTab
-            posts={posts}
+            posts={filteredPosts}
+            allPosts={posts}
             myCircles={myCircles}
             onRefresh={onRefresh}
             refreshing={refreshing}
             onLike={handleLike}
-            onOpenPost={() => {}}
             userId={user!.id}
             bottomPad={bottomPad}
+            feedFilter={feedFilter}
+            onFilterChange={setFeedFilter}
+            onAuthorPress={setViewingUserId}
             onCreatePost={() => setShowCreatePost(true)}
           />
         ) : activeTab === "circles" ? (
@@ -227,7 +279,6 @@ export function MainAppScreen() {
         )}
       </Animated.View>
 
-      {/* Create Post Modal */}
       {showCreatePost && (
         <CreatePostModal
           onClose={() => setShowCreatePost(false)}
@@ -236,15 +287,21 @@ export function MainAppScreen() {
           myCircles={myCircles}
         />
       )}
+
+      {viewingUserId && (
+        <UserProfileModal
+          userId={viewingUserId}
+          viewerId={user!.id}
+          onClose={() => { setViewingUserId(null); handleFollowChange(); }}
+        />
+      )}
     </View>
   );
 }
 
-// ─── Feed Tab ────────────────────────────────────────────────────────────────
+// ─── Feed Tab ─────────────────────────────────────────────────────────────────
 
-function FeedTab({
-  posts, myCircles, onRefresh, refreshing, onLike, onOpenPost, userId, bottomPad, onCreatePost
-}: any) {
+function FeedTab({ posts, allPosts, myCircles, onRefresh, refreshing, onLike, userId, bottomPad, feedFilter, onFilterChange, onAuthorPress, onCreatePost }: any) {
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
 
   return (
@@ -252,52 +309,89 @@ function FeedTab({
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: bottomPad + 24 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366F1" />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366F1" />
+        }
       >
-        {/* My circles row */}
-        <Text style={styles.sectionLabel}>My circles</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ marginBottom: 20 }}
-          contentContainerStyle={{ gap: 8, paddingRight: 4 }}
-        >
-          {myCircles.map((c: any, i: number) => (
-            <View key={c.id} style={styles.circleChip}>
-              <LinearGradient
-                colors={[Object.values(PALETTES)[i % 6][0] + "30", Object.values(PALETTES)[i % 6][0] + "10"]}
-                style={StyleSheet.absoluteFill}
-              />
-              <View style={[styles.circleDot, { backgroundColor: Object.values(PALETTES)[i % 6][0] }]} />
-              <Text style={styles.circleChipText}>{c.name}</Text>
-            </View>
-          ))}
-          <TouchableOpacity style={styles.addCircleBtn} onPress={onCreatePost}>
-            <Feather name="plus" size={16} color="#475569" />
-          </TouchableOpacity>
-        </ScrollView>
+        {/* My Circles strip */}
+        {myCircles.length > 0 && (
+          <>
+            <Text style={styles.sectionLabel}>My circles</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ marginBottom: 20 }}
+              contentContainerStyle={{ gap: 8, paddingRight: 4 }}
+            >
+              {myCircles.map((c: any, i: number) => {
+                const pal = Object.values(PALETTES)[i % 6] as [string, string];
+                return (
+                  <View key={c.id} style={styles.circleChip}>
+                    <LinearGradient
+                      colors={[pal[0] + "30", pal[0] + "10"]}
+                      style={StyleSheet.absoluteFill}
+                    />
+                    <View style={[styles.circleDot, { backgroundColor: pal[0] }]} />
+                    <Text style={styles.circleChipText}>{c.name}</Text>
+                  </View>
+                );
+              })}
+              <TouchableOpacity style={styles.addCircleBtn} onPress={onCreatePost} activeOpacity={0.8}>
+                <Feather name="plus" size={15} color="#475569" />
+              </TouchableOpacity>
+            </ScrollView>
+          </>
+        )}
 
-        <View style={styles.feedHeader}>
-          <Text style={styles.sectionLabel}>Feed</Text>
-          {posts.length > 0 && (
-            <Text style={styles.feedCount}>{posts.length} posts</Text>
-          )}
+        {/* Feed filter tabs */}
+        <View style={styles.filterRow}>
+          {[
+            { id: "all", label: "All" },
+            { id: "circles", label: "My circles" },
+            { id: "following", label: "Following" },
+          ].map((f) => (
+            <TouchableOpacity
+              key={f.id}
+              style={[styles.filterBtn, feedFilter === f.id && styles.filterBtnActive]}
+              onPress={() => onFilterChange(f.id)}
+              activeOpacity={0.8}
+            >
+              {feedFilter === f.id && (
+                <LinearGradient
+                  colors={["rgba(99,102,241,0.2)", "rgba(59,130,246,0.12)"]}
+                  style={StyleSheet.absoluteFill}
+                />
+              )}
+              <Text style={[styles.filterText, feedFilter === f.id && styles.filterTextActive]}>
+                {f.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         {posts.length === 0 ? (
           <View style={styles.emptyState}>
             <Feather name="message-circle" size={32} color="#334155" />
-            <Text style={styles.emptyTitle}>No posts yet</Text>
-            <Text style={styles.emptySub}>Be the first to post in your circles</Text>
+            <Text style={styles.emptyTitle}>
+              {feedFilter === "following"
+                ? "Follow people to see their posts"
+                : feedFilter === "circles"
+                ? "No posts in your circles yet"
+                : "No posts yet"}
+            </Text>
+            <Text style={styles.emptySub}>
+              {feedFilter === "all" ? "Be the first to post" : ""}
+            </Text>
           </View>
         ) : (
           posts.map((post: Post, i: number) => (
             <FeedCard
               key={post.id}
               post={post}
-              delay={i * 60}
+              delay={i * 50}
               onLike={() => onLike(post)}
               onComment={() => setSelectedPost(post)}
+              onAuthorPress={() => onAuthorPress(post.author_id)}
               isOwnPost={post.author_id === userId}
             />
           ))
@@ -309,13 +403,16 @@ function FeedTab({
           post={selectedPost}
           userId={userId}
           onClose={() => setSelectedPost(null)}
+          onAuthorPress={(id: string) => { setSelectedPost(null); onAuthorPress(id); }}
         />
       )}
     </>
   );
 }
 
-function FeedCard({ post, delay, onLike, onComment, isOwnPost }: any) {
+// ─── Feed Card ────────────────────────────────────────────────────────────────
+
+function FeedCard({ post, delay, onLike, onComment, onAuthorPress, isOwnPost }: any) {
   const fade = useRef(new Animated.Value(0)).current;
   const slide = useRef(new Animated.Value(20)).current;
   const postType = POST_TYPES.find((t) => t.id === post.post_type) ?? POST_TYPES[3];
@@ -323,38 +420,48 @@ function FeedCard({ post, delay, onLike, onComment, isOwnPost }: any) {
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fade, { toValue: 1, duration: 450, delay, useNativeDriver: true }),
-      Animated.timing(slide, { toValue: 0, duration: 450, delay, useNativeDriver: true }),
+      Animated.timing(fade, { toValue: 1, duration: 400, delay, useNativeDriver: true }),
+      Animated.timing(slide, { toValue: 0, duration: 400, delay, useNativeDriver: true }),
     ]).start();
   }, []);
 
   const initial = post.profiles?.nickname?.[0]?.toUpperCase() ?? "?";
   const nickname = post.profiles?.nickname ?? "Ambit Member";
-  const timeAgo = getTimeAgo(post.created_at);
 
   return (
     <Animated.View style={[styles.feedCard, { opacity: fade, transform: [{ translateY: slide }] }]}>
-      <LinearGradient
-        colors={["rgba(16,22,56,0.9)", "rgba(12,17,44,0.95)"]}
-        style={styles.feedGrad}
-      >
+      <LinearGradient colors={["rgba(16,22,56,0.9)", "rgba(12,17,44,0.95)"]} style={styles.feedGrad}>
         <View style={styles.feedTop}>
-          <LinearGradient colors={palette} style={styles.feedAvatar}>
-            <Text style={styles.feedAvatarText}>{initial}</Text>
-          </LinearGradient>
+          <TouchableOpacity onPress={onAuthorPress} activeOpacity={0.8}>
+            <LinearGradient colors={palette} style={styles.feedAvatar}>
+              <Text style={styles.feedAvatarText}>{initial}</Text>
+            </LinearGradient>
+          </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={styles.feedAuthor}>{nickname}</Text>
+            <TouchableOpacity onPress={onAuthorPress} activeOpacity={0.8}>
+              <Text style={styles.feedAuthor}>{nickname}</Text>
+            </TouchableOpacity>
             <View style={styles.feedMeta}>
               {post.circles?.name && (
                 <View style={styles.circleTag}>
                   <Text style={styles.circleTagText}>{post.circles.name}</Text>
                 </View>
               )}
-              <View style={[styles.typeBadge, { backgroundColor: postType.color + "20", borderColor: postType.color + "40" }]}>
+              <View
+                style={[
+                  styles.typeBadge,
+                  {
+                    backgroundColor: postType.color + "20",
+                    borderColor: postType.color + "40",
+                  },
+                ]}
+              >
                 <Feather name={postType.icon as any} size={10} color={postType.color} />
-                <Text style={[styles.typeBadgeText, { color: postType.color }]}>{postType.label}</Text>
+                <Text style={[styles.typeBadgeText, { color: postType.color }]}>
+                  {postType.label}
+                </Text>
               </View>
-              <Text style={styles.feedTime}>{timeAgo}</Text>
+              <Text style={styles.feedTime}>{getTimeAgo(post.created_at)}</Text>
             </View>
           </View>
         </View>
@@ -364,7 +471,7 @@ function FeedCard({ post, delay, onLike, onComment, isOwnPost }: any) {
         <View style={styles.feedActions}>
           <TouchableOpacity style={styles.feedAction} onPress={onLike}>
             <Feather name="heart" size={15} color={post.liked ? "#EF4444" : "#334155"} />
-            <Text style={[styles.feedActionNum, post.liked && { color: "#EF4444" }]}>
+            <Text style={[styles.feedActionNum, post.liked && styles.likedNum]}>
               {post.like_count}
             </Text>
           </TouchableOpacity>
@@ -372,8 +479,8 @@ function FeedCard({ post, delay, onLike, onComment, isOwnPost }: any) {
             <Feather name="message-circle" size={15} color="#334155" />
             <Text style={styles.feedActionNum}>{post.comment_count}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.feedAction} onPress={onComment}>
-            <Feather name="share-2" size={15} color="#334155" />
+          <TouchableOpacity style={styles.feedAction} onPress={onAuthorPress}>
+            <Feather name="user" size={15} color="#334155" />
           </TouchableOpacity>
         </View>
       </LinearGradient>
@@ -383,8 +490,18 @@ function FeedCard({ post, delay, onLike, onComment, isOwnPost }: any) {
 
 // ─── Comments Modal ───────────────────────────────────────────────────────────
 
-function CommentsModal({ post, userId, onClose }: { post: Post; userId: string; onClose: () => void }) {
-  const [comments, setComments] = useState<Comment[]>([]);
+function CommentsModal({
+  post,
+  userId,
+  onClose,
+  onAuthorPress,
+}: {
+  post: Post;
+  userId: string;
+  onClose: () => void;
+  onAuthorPress: (id: string) => void;
+}) {
+  const [comments, setComments] = useState<any[]>([]);
   const [text, setText] = useState("");
   const [posting, setPosting] = useState(false);
 
@@ -410,10 +527,16 @@ function CommentsModal({ post, userId, onClose }: { post: Post; userId: string; 
 
   return (
     <Modal visible animationType="slide" transparent>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
-            <LinearGradient colors={["rgba(14,19,50,0.98)", "rgba(10,15,40,0.99)"]} style={styles.modalGrad}>
+            <LinearGradient
+              colors={["rgba(14,19,50,0.98)", "rgba(10,15,40,0.99)"]}
+              style={styles.modalGrad}
+            >
               <View style={styles.modalHandle} />
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Comments ({comments.length})</Text>
@@ -422,33 +545,47 @@ function CommentsModal({ post, userId, onClose }: { post: Post; userId: string; 
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 12 }}>
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ padding: 16, gap: 12 }}
+                keyboardShouldPersistTaps="handled"
+              >
                 <View style={styles.postPreview}>
-                  <Text style={styles.postPreviewText} numberOfLines={2}>{post.content}</Text>
+                  <Text style={styles.postPreviewText} numberOfLines={2}>
+                    {post.content}
+                  </Text>
                 </View>
+
+                {comments.length === 0 && (
+                  <Text style={styles.noComments}>No comments yet. Start the conversation.</Text>
+                )}
+
                 {comments.map((c) => {
-                  const palette = PALETTES[c.profiles?.avatar_style ?? "A"] ?? PALETTES["A"];
+                  const pal = PALETTES[c.profiles?.avatar_style ?? "A"] ?? PALETTES["A"];
                   return (
                     <View key={c.id} style={styles.commentRow}>
-                      <LinearGradient colors={palette} style={styles.commentAvatar}>
-                        <Text style={styles.commentAvatarText}>
-                          {c.profiles?.nickname?.[0]?.toUpperCase() ?? "?"}
-                        </Text>
-                      </LinearGradient>
+                      <TouchableOpacity onPress={() => onAuthorPress(c.author_id)} activeOpacity={0.8}>
+                        <LinearGradient colors={pal} style={styles.commentAvatar}>
+                          <Text style={styles.commentAvatarText}>
+                            {c.profiles?.nickname?.[0]?.toUpperCase() ?? "?"}
+                          </Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
                       <View style={styles.commentBubble}>
-                        <Text style={styles.commentAuthor}>{c.profiles?.nickname ?? "Member"}</Text>
+                        <TouchableOpacity onPress={() => onAuthorPress(c.author_id)} activeOpacity={0.8}>
+                          <Text style={styles.commentAuthor}>
+                            {c.profiles?.nickname ?? "Member"}
+                          </Text>
+                        </TouchableOpacity>
                         <Text style={styles.commentContent}>{c.content}</Text>
                         <Text style={styles.commentTime}>{getTimeAgo(c.created_at)}</Text>
                       </View>
                     </View>
                   );
                 })}
-                {comments.length === 0 && (
-                  <Text style={styles.noComments}>No comments yet. Start the conversation.</Text>
-                )}
               </ScrollView>
 
-              <View style={styles.commentInput}>
+              <View style={styles.commentInputRow}>
                 <TextInput
                   style={styles.commentTextInput}
                   placeholder="Add a comment..."
@@ -480,8 +617,16 @@ function CommentsModal({ post, userId, onClose }: { post: Post; userId: string; 
 // ─── Create Post Modal ────────────────────────────────────────────────────────
 
 function CreatePostModal({
-  onClose, onPosted, userId, myCircles,
-}: { onClose: () => void; onPosted: () => void; userId: string; myCircles: any[] }) {
+  onClose,
+  onPosted,
+  userId,
+  myCircles,
+}: {
+  onClose: () => void;
+  onPosted: () => void;
+  userId: string;
+  myCircles: any[];
+}) {
   const [content, setContent] = useState("");
   const [postType, setPostType] = useState("general");
   const [circleId, setCircleId] = useState<string | null>(myCircles[0]?.id ?? null);
@@ -503,87 +648,142 @@ function CreatePostModal({
     onPosted();
   }
 
-  const selected = POST_TYPES.find((t) => t.id === postType) ?? POST_TYPES[3];
-
   return (
     <Modal visible animationType="slide" transparent>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
-            <LinearGradient colors={["rgba(14,19,50,0.98)", "rgba(10,15,40,0.99)"]} style={styles.modalGrad}>
+            <LinearGradient
+              colors={["rgba(14,19,50,0.98)", "rgba(10,15,40,0.99)"]}
+              style={styles.modalGrad}
+            >
               <View style={styles.modalHandle} />
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>New Post</Text>
+                <Text style={styles.modalTitle}>New post</Text>
                 <TouchableOpacity onPress={onClose}>
                   <Feather name="x" size={20} color="#475569" />
                 </TouchableOpacity>
               </View>
 
-              <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+              <ScrollView
+                contentContainerStyle={{ padding: 18, gap: 18 }}
+                keyboardShouldPersistTaps="handled"
+              >
                 {/* Post type */}
-                <Text style={styles.fieldLabel}>Post type</Text>
-                <View style={styles.typeRow}>
-                  {POST_TYPES.map((t) => (
-                    <TouchableOpacity
-                      key={t.id}
-                      style={[styles.typeBtn, postType === t.id && { borderColor: t.color }]}
-                      onPress={() => setPostType(t.id)}
-                      activeOpacity={0.8}
-                    >
-                      <Feather name={t.icon as any} size={14} color={postType === t.id ? t.color : "#475569"} />
-                      <Text style={[styles.typeBtnText, postType === t.id && { color: t.color }]}>{t.label}</Text>
-                    </TouchableOpacity>
-                  ))}
+                <View>
+                  <Text style={styles.fieldLabel}>Post type</Text>
+                  <View style={styles.typeRow}>
+                    {POST_TYPES.map((t) => (
+                      <TouchableOpacity
+                        key={t.id}
+                        style={[
+                          styles.typeBtn,
+                          postType === t.id && {
+                            borderColor: t.color,
+                            backgroundColor: t.color + "15",
+                          },
+                        ]}
+                        onPress={() => setPostType(t.id)}
+                        activeOpacity={0.8}
+                      >
+                        <Feather
+                          name={t.icon as any}
+                          size={13}
+                          color={postType === t.id ? t.color : "#475569"}
+                        />
+                        <Text
+                          style={[
+                            styles.typeBtnText,
+                            postType === t.id && { color: t.color },
+                          ]}
+                        >
+                          {t.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 </View>
 
-                {/* Circle picker */}
+                {/* Circle */}
                 {myCircles.length > 0 && (
-                  <>
+                  <View>
                     <Text style={styles.fieldLabel}>Post to circle</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                      {myCircles.map((c) => (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ gap: 8 }}
+                    >
+                      <TouchableOpacity
+                        style={[styles.circlePickerBtn, circleId === null && styles.circlePickerBtnActive]}
+                        onPress={() => setCircleId(null)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.circlePickerText, circleId === null && styles.circlePickerTextActive]}>
+                          No circle
+                        </Text>
+                      </TouchableOpacity>
+                      {myCircles.map((c: any) => (
                         <TouchableOpacity
                           key={c.id}
                           style={[styles.circlePickerBtn, circleId === c.id && styles.circlePickerBtnActive]}
                           onPress={() => setCircleId(c.id)}
                           activeOpacity={0.8}
                         >
-                          <Text style={[styles.circlePickerText, circleId === c.id && styles.circlePickerTextActive]}>
+                          <Text
+                            style={[
+                              styles.circlePickerText,
+                              circleId === c.id && styles.circlePickerTextActive,
+                            ]}
+                          >
                             {c.name}
                           </Text>
                         </TouchableOpacity>
                       ))}
                     </ScrollView>
-                  </>
+                  </View>
                 )}
 
                 {/* Content */}
-                <Text style={styles.fieldLabel}>What's on your mind?</Text>
-                <TextInput
-                  style={styles.postTextInput}
-                  placeholder={
-                    postType === "question" ? "Ask your question..."
-                    : postType === "debate" ? "Start a debate..."
-                    : postType === "experience" ? "Share your experience..."
-                    : "Share with your circle..."
-                  }
-                  placeholderTextColor="#334155"
-                  value={content}
-                  onChangeText={setContent}
-                  multiline
-                  maxLength={500}
-                />
-                <Text style={styles.charCount}>{content.length}/500</Text>
+                <View>
+                  <Text style={styles.fieldLabel}>What's on your mind?</Text>
+                  <TextInput
+                    style={styles.postTextInput}
+                    placeholder={
+                      postType === "question"
+                        ? "Ask your question..."
+                        : postType === "debate"
+                        ? "Start a debate..."
+                        : postType === "experience"
+                        ? "Share your experience..."
+                        : "Share something with your circle..."
+                    }
+                    placeholderTextColor="#334155"
+                    value={content}
+                    onChangeText={setContent}
+                    multiline
+                    maxLength={500}
+                    autoFocus
+                  />
+                  <Text style={styles.charCount}>{content.length}/500</Text>
+                </View>
 
                 {error && <Text style={styles.errorText}>{error}</Text>}
 
                 <TouchableOpacity
-                  style={[styles.postBtn, !content.trim() && { opacity: 0.4 }]}
+                  style={[styles.postBtn, (!content.trim() || posting) && { opacity: 0.4 }]}
                   onPress={handlePost}
                   disabled={!content.trim() || posting}
                   activeOpacity={0.9}
                 >
-                  <LinearGradient colors={["#3B82F6", "#6366F1", "#8B5CF6"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.postBtnGrad}>
+                  <LinearGradient
+                    colors={["#3B82F6", "#6366F1", "#8B5CF6"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.postBtnGrad}
+                  >
                     {posting ? (
                       <ActivityIndicator color="#fff" size="small" />
                     ) : (
@@ -602,41 +802,67 @@ function CreatePostModal({
 
 // ─── Circles Tab ──────────────────────────────────────────────────────────────
 
-function CirclesTab({ myCircles, userId, onJoin, bottomPad }: any) {
+function CirclesTab({
+  myCircles,
+  userId,
+  onJoin,
+  bottomPad,
+}: {
+  myCircles: any[];
+  userId: string;
+  onJoin: () => void;
+  bottomPad: number;
+}) {
   const [allCircles, setAllCircles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    const { data } = await supabase.from("circles").select("*").order("member_count", { ascending: false });
+    const { data } = await supabase
+      .from("circles")
+      .select("*")
+      .order("member_count", { ascending: false });
     setAllCircles(data ?? []);
     setLoading(false);
   }
 
   async function toggleJoin(circle: any) {
-    const joined = myCircles.some((c: any) => c.id === circle.id);
+    const joined = myCircles.some((c) => c.id === circle.id);
     if (joined) {
-      await supabase.from("circle_members").delete().eq("circle_id", circle.id).eq("user_id", userId);
+      await supabase
+        .from("circle_members")
+        .delete()
+        .eq("circle_id", circle.id)
+        .eq("user_id", userId);
     } else {
-      await supabase.from("circle_members").upsert({ circle_id: circle.id, user_id: userId }, { onConflict: "circle_id,user_id" });
+      await supabase
+        .from("circle_members")
+        .upsert({ circle_id: circle.id, user_id: userId }, { onConflict: "circle_id,user_id" });
     }
     await loadAll();
-    await onJoin();
+    onJoin();
   }
 
   return (
-    <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: bottomPad + 24 }}>
-      <Text style={styles.sectionLabel}>All circles</Text>
+    <ScrollView
+      contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: bottomPad + 24, gap: 10 }}
+    >
+      <Text style={[styles.sectionLabel, { marginTop: 4 }]}>
+        All circles · {allCircles.length}
+      </Text>
       {loading ? (
         <ActivityIndicator color="#6366F1" style={{ marginTop: 24 }} />
       ) : (
         allCircles.map((circle, i) => {
-          const joined = myCircles.some((c: any) => c.id === circle.id);
+          const joined = myCircles.some((c) => c.id === circle.id);
           const pal = Object.values(PALETTES)[i % 6] as [string, string];
           return (
             <View key={circle.id} style={styles.circleRow}>
-              <LinearGradient colors={["rgba(15,20,50,0.85)", "rgba(12,16,42,0.9)"]} style={styles.circleRowGrad}>
+              <LinearGradient
+                colors={["rgba(15,20,50,0.85)", "rgba(12,16,42,0.9)"]}
+                style={styles.circleRowGrad}
+              >
                 <LinearGradient colors={pal} style={styles.circleIcon}>
                   <Feather name="users" size={16} color="#fff" />
                 </LinearGradient>
@@ -664,17 +890,31 @@ function CirclesTab({ myCircles, userId, onJoin, bottomPad }: any) {
 
 // ─── Profile Tab ──────────────────────────────────────────────────────────────
 
-function ProfileTab({ profile, palette, initial, posts, onSignOut, bottomPad }: any) {
+function ProfileTab({
+  profile,
+  palette,
+  initial,
+  posts,
+  onSignOut,
+  bottomPad,
+}: any) {
   return (
-    <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: bottomPad + 24 }}>
+    <ScrollView
+      contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: bottomPad + 24 }}
+    >
       <View style={styles.profileHeader}>
         <LinearGradient colors={palette} style={styles.profileAvatar}>
           <Text style={styles.profileAvatarText}>{initial}</Text>
         </LinearGradient>
         <Text style={styles.profileName}>{profile?.nickname ?? "Ambit Member"}</Text>
-        {profile?.bio ? (
-          <Text style={styles.profileBio}>{profile.bio}</Text>
+        {profile?.bio ? <Text style={styles.profileBio}>{profile.bio}</Text> : null}
+
+        {profile?.student_identity ? (
+          <View style={styles.identityBadge}>
+            <Text style={styles.identityBadgeText}>{profile.student_identity}</Text>
+          </View>
         ) : null}
+
         <View style={styles.profileTags}>
           {(profile?.focus_topics ?? []).map((t: string) => (
             <View key={t} style={styles.profileTag}>
@@ -686,24 +926,41 @@ function ProfileTab({ profile, palette, initial, posts, onSignOut, bottomPad }: 
 
       <Text style={styles.sectionLabel}>My posts ({posts.length})</Text>
       {posts.length === 0 && (
-        <Text style={styles.emptySub}>No posts yet</Text>
+        <View style={styles.emptyState}>
+          <Text style={styles.emptySub}>No posts yet — share something with your circles.</Text>
+        </View>
       )}
       {posts.map((post: Post) => {
         const pt = POST_TYPES.find((t) => t.id === post.post_type) ?? POST_TYPES[3];
         return (
           <View key={post.id} style={styles.profilePost}>
-            <LinearGradient colors={["rgba(15,20,50,0.85)", "rgba(12,16,42,0.9)"]} style={styles.profilePostGrad}>
-              <View style={[styles.typeBadge, { backgroundColor: pt.color + "20", borderColor: pt.color + "40", alignSelf: "flex-start", marginBottom: 8 }]}>
+            <LinearGradient
+              colors={["rgba(15,20,50,0.85)", "rgba(12,16,42,0.9)"]}
+              style={styles.profilePostGrad}
+            >
+              <View
+                style={[
+                  styles.typeBadge,
+                  {
+                    backgroundColor: pt.color + "20",
+                    borderColor: pt.color + "40",
+                    alignSelf: "flex-start",
+                    marginBottom: 10,
+                  },
+                ]}
+              >
                 <Feather name={pt.icon as any} size={10} color={pt.color} />
                 <Text style={[styles.typeBadgeText, { color: pt.color }]}>{pt.label}</Text>
               </View>
               <Text style={styles.profilePostContent}>{post.content}</Text>
               <View style={styles.profilePostMeta}>
                 <Feather name="heart" size={12} color="#334155" />
-                <Text style={styles.profilePostMetaText}>{post.like_count}</Text>
+                <Text style={styles.profileMetaNum}>{post.like_count}</Text>
                 <Feather name="message-circle" size={12} color="#334155" />
-                <Text style={styles.profilePostMetaText}>{post.comment_count}</Text>
-                <Text style={styles.feedTime}>{getTimeAgo(post.created_at)}</Text>
+                <Text style={styles.profileMetaNum}>{post.comment_count}</Text>
+                <Text style={[styles.feedTime, { marginLeft: "auto" }]}>
+                  {getTimeAgo(post.created_at)}
+                </Text>
               </View>
             </LinearGradient>
           </View>
@@ -741,235 +998,411 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 12,
-    marginBottom: 4,
   },
   appName: { fontSize: 26, fontWeight: "800", color: "#F8FAFC", letterSpacing: -0.8 },
   headerSub: { color: "#334155", fontSize: 12, marginTop: 2 },
   headerRight: { flexDirection: "row", gap: 10, alignItems: "center" },
   iconBtn: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: "rgba(99,102,241,0.1)",
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  avatarSmall: { width: 36, height: 36, borderRadius: 18, overflow: "hidden" },
-  avatarGrad: { flex: 1, alignItems: "center", justifyContent: "center" },
+  avatarSmallWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    overflow: "hidden",
+  },
+  avatarSmall: { flex: 1, alignItems: "center", justifyContent: "center" },
   avatarSmallText: { color: "#fff", fontSize: 14, fontWeight: "800" },
   tabBar: {
     flexDirection: "row",
     paddingHorizontal: 20,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.04)",
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  tabItem: { flex: 1, alignItems: "center", paddingVertical: 10, gap: 3, position: "relative" },
-  tabLabel: { color: "#334155", fontSize: 10, fontWeight: "600", letterSpacing: 0.5, textTransform: "uppercase" },
+  tabItem: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 10,
+    gap: 3,
+    position: "relative",
+  },
+  tabLabel: {
+    color: "#334155",
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
   tabLabelActive: { color: "#818CF8" },
-  tabDot: {
-    position: "absolute", bottom: 0,
-    width: 20, height: 2, borderRadius: 1,
+  tabUnderline: {
+    position: "absolute",
+    bottom: 0,
+    width: 20,
+    height: 2,
+    borderRadius: 1,
     backgroundColor: "#6366F1",
   },
   loadingCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
   sectionLabel: {
-    color: "#334155", fontSize: 11, fontWeight: "700",
-    letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 12,
+    color: "#334155",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    marginBottom: 12,
   },
-  feedHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  feedCount: { color: "#334155", fontSize: 12 },
   circleChip: {
-    flexDirection: "row", alignItems: "center", gap: 7,
-    paddingHorizontal: 14, paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     borderRadius: 22,
     backgroundColor: "rgba(14,19,48,0.8)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.06)",
-    overflow: "hidden", position: "relative",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+    overflow: "hidden",
+    position: "relative",
   },
   circleDot: { width: 7, height: 7, borderRadius: 4 },
   circleChipText: { color: "#94A3B8", fontSize: 13, fontWeight: "600" },
   addCircleBtn: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: "rgba(14,19,48,0.8)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.06)",
-    alignItems: "center", justifyContent: "center", alignSelf: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "center",
   },
+  filterRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 16,
+  },
+  filterBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: "rgba(14,19,48,0.8)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+    overflow: "hidden",
+    position: "relative",
+  },
+  filterBtnActive: { borderColor: "rgba(99,102,241,0.45)" },
+  filterText: { color: "#475569", fontSize: 13, fontWeight: "600" },
+  filterTextActive: { color: "#818CF8", fontWeight: "700" },
   emptyState: { alignItems: "center", paddingVertical: 48, gap: 10 },
-  emptyTitle: { color: "#475569", fontSize: 16, fontWeight: "600" },
-  emptySub: { color: "#334155", fontSize: 14 },
+  emptyTitle: { color: "#475569", fontSize: 16, fontWeight: "600", textAlign: "center" },
+  emptySub: { color: "#334155", fontSize: 14, textAlign: "center" },
   feedCard: {
-    borderRadius: 20, overflow: "hidden", marginBottom: 12,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.04)",
+    borderRadius: 20,
+    overflow: "hidden",
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.04)",
   },
   feedGrad: { padding: 16 },
-  feedTop: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 12 },
-  feedAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  feedTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 12,
+  },
+  feedAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   feedAvatarText: { color: "#fff", fontSize: 16, fontWeight: "800" },
   feedAuthor: { color: "#E2E8F0", fontSize: 14, fontWeight: "700", marginBottom: 5 },
   feedMeta: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   circleTag: {
-    borderRadius: 7, borderWidth: 1,
+    borderRadius: 7,
+    borderWidth: 1,
     borderColor: "rgba(99,102,241,0.3)",
     backgroundColor: "rgba(99,102,241,0.1)",
-    paddingHorizontal: 7, paddingVertical: 2,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
   },
   circleTagText: { color: "#818CF8", fontSize: 10, fontWeight: "600" },
   typeBadge: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    borderRadius: 7, borderWidth: 1,
-    paddingHorizontal: 7, paddingVertical: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: 7,
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
   },
   typeBadgeText: { fontSize: 10, fontWeight: "700" },
   feedTime: { color: "#334155", fontSize: 11 },
   feedContent: { color: "#94A3B8", fontSize: 14, lineHeight: 22, marginBottom: 14 },
   feedActions: {
-    flexDirection: "row", gap: 18,
+    flexDirection: "row",
+    gap: 18,
     paddingTop: 12,
-    borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.04)",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.04)",
   },
   feedAction: { flexDirection: "row", alignItems: "center", gap: 6 },
   feedActionNum: { color: "#334155", fontSize: 13, fontWeight: "600" },
+  likedNum: { color: "#EF4444" },
   // Circles tab
   circleRow: {
-    borderRadius: 18, overflow: "hidden",
-    marginBottom: 10, borderWidth: 1,
+    borderRadius: 18,
+    overflow: "hidden",
+    borderWidth: 1,
     borderColor: "rgba(255,255,255,0.05)",
   },
-  circleRowGrad: { flexDirection: "row", alignItems: "center", gap: 14, padding: 14 },
+  circleRowGrad: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    padding: 14,
+  },
   circleIcon: {
-    width: 44, height: 44, borderRadius: 22,
-    alignItems: "center", justifyContent: "center",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
   },
   circleRowName: { color: "#E2E8F0", fontSize: 14, fontWeight: "700" },
   circleRowCount: { color: "#475569", fontSize: 12, marginTop: 2 },
   joinBtn: {
-    paddingHorizontal: 16, paddingVertical: 8,
-    borderRadius: 14, borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 1,
     borderColor: "rgba(99,102,241,0.5)",
     backgroundColor: "rgba(99,102,241,0.1)",
   },
-  joinedBtn: { borderColor: "rgba(255,255,255,0.08)", backgroundColor: "rgba(255,255,255,0.04)" },
+  joinedBtn: {
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
   joinBtnText: { color: "#818CF8", fontSize: 13, fontWeight: "700" },
   joinedBtnText: { color: "#475569" },
   // Profile tab
   profileHeader: { alignItems: "center", paddingVertical: 24, gap: 10 },
   profileAvatar: {
-    width: 88, height: 88, borderRadius: 44,
-    alignItems: "center", justifyContent: "center",
-    marginBottom: 6,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
     shadowColor: "#6366F1",
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4, shadowRadius: 20,
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
   },
   profileAvatarText: { fontSize: 36, fontWeight: "800", color: "#fff" },
   profileName: { color: "#F1F5F9", fontSize: 22, fontWeight: "800" },
   profileBio: { color: "#64748B", fontSize: 14, textAlign: "center" },
+  identityBadge: {
+    backgroundColor: "rgba(99,102,241,0.14)",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: "rgba(99,102,241,0.3)",
+  },
+  identityBadgeText: { color: "#818CF8", fontSize: 13, fontWeight: "600" },
   profileTags: { flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "center" },
   profileTag: {
-    backgroundColor: "rgba(59,130,246,0.1)", borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 4,
-    borderWidth: 1, borderColor: "rgba(59,130,246,0.2)",
+    backgroundColor: "rgba(59,130,246,0.1)",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: "rgba(59,130,246,0.2)",
   },
   profileTagText: { color: "#60A5FA", fontSize: 12, fontWeight: "600" },
   profilePost: {
-    borderRadius: 16, overflow: "hidden", marginBottom: 10,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.04)",
+    borderRadius: 16,
+    overflow: "hidden",
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.04)",
   },
   profilePostGrad: { padding: 16 },
   profilePostContent: { color: "#94A3B8", fontSize: 14, lineHeight: 22, marginBottom: 10 },
-  profilePostMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
-  profilePostMetaText: { color: "#334155", fontSize: 12, fontWeight: "600" },
+  profilePostMeta: { flexDirection: "row", alignItems: "center", gap: 7 },
+  profileMetaNum: { color: "#334155", fontSize: 12, fontWeight: "600" },
   signOutBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 8, paddingVertical: 14, marginTop: 24, marginBottom: 32,
-    borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.05)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    marginTop: 20,
+    marginBottom: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
     backgroundColor: "rgba(255,255,255,0.02)",
   },
   signOutText: { color: "#475569", fontSize: 14, fontWeight: "500" },
   // Modals
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.65)", justifyContent: "flex-end" },
-  modalSheet: { height: "80%", borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: "hidden" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    height: "80%",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: "hidden",
+  },
   modalGrad: { flex: 1 },
   modalHandle: {
-    width: 36, height: 4, borderRadius: 2,
+    width: 36,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: "rgba(255,255,255,0.12)",
-    alignSelf: "center", marginTop: 12, marginBottom: 4,
+    alignSelf: "center",
+    marginTop: 12,
+    marginBottom: 4,
   },
   modalHeader: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    paddingHorizontal: 20, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
   },
   modalTitle: { color: "#F1F5F9", fontSize: 17, fontWeight: "700" },
   postPreview: {
-    backgroundColor: "rgba(20,26,60,0.8)", borderRadius: 12,
-    padding: 12, borderWidth: 1, borderColor: "rgba(99,102,241,0.15)",
+    backgroundColor: "rgba(20,26,60,0.8)",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(99,102,241,0.15)",
     marginBottom: 4,
   },
   postPreviewText: { color: "#64748B", fontSize: 13, lineHeight: 20 },
   commentRow: { flexDirection: "row", gap: 10 },
-  commentAvatar: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  commentAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   commentAvatarText: { color: "#fff", fontSize: 14, fontWeight: "800" },
   commentBubble: {
-    flex: 1, backgroundColor: "rgba(20,26,60,0.7)", borderRadius: 14, borderTopLeftRadius: 4,
-    padding: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.05)", gap: 4,
+    flex: 1,
+    backgroundColor: "rgba(20,26,60,0.7)",
+    borderRadius: 14,
+    borderTopLeftRadius: 4,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+    gap: 4,
   },
   commentAuthor: { color: "#94A3B8", fontSize: 12, fontWeight: "700" },
   commentContent: { color: "#CBD5E1", fontSize: 14, lineHeight: 20 },
   commentTime: { color: "#334155", fontSize: 11 },
   noComments: { color: "#334155", fontSize: 14, textAlign: "center", paddingVertical: 24 },
-  commentInput: {
-    flexDirection: "row", gap: 10, padding: 14,
-    borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)",
+  commentInputRow: {
+    flexDirection: "row",
+    gap: 10,
+    padding: 14,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.05)",
   },
   commentTextInput: {
-    flex: 1, color: "#F1F5F9", fontSize: 14,
+    flex: 1,
+    color: "#F1F5F9",
+    fontSize: 14,
     backgroundColor: "rgba(20,26,60,0.8)",
-    borderRadius: 14, padding: 12,
-    borderWidth: 1, borderColor: "rgba(99,102,241,0.15)",
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(99,102,241,0.15)",
     maxHeight: 80,
   },
   commentSend: {
-    width: 42, height: 42, borderRadius: 21,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: "#6366F1",
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
     alignSelf: "flex-end",
   },
   commentSendDisabled: { opacity: 0.4 },
-  // Create post modal
   fieldLabel: {
-    color: "#475569", fontSize: 11, fontWeight: "700",
-    letterSpacing: 1, textTransform: "uppercase", marginBottom: 8,
+    color: "#475569",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 10,
   },
   typeRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   typeBtn: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 12, paddingVertical: 8,
-    borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
     backgroundColor: "rgba(14,19,48,0.8)",
   },
   typeBtnText: { color: "#475569", fontSize: 13, fontWeight: "600" },
   circlePickerBtn: {
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 20, borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
     borderColor: "rgba(255,255,255,0.07)",
     backgroundColor: "rgba(14,19,48,0.8)",
   },
-  circlePickerBtnActive: { borderColor: "rgba(99,102,241,0.5)", backgroundColor: "rgba(99,102,241,0.1)" },
+  circlePickerBtnActive: {
+    borderColor: "rgba(99,102,241,0.5)",
+    backgroundColor: "rgba(99,102,241,0.1)",
+  },
   circlePickerText: { color: "#475569", fontSize: 13, fontWeight: "500" },
   circlePickerTextActive: { color: "#818CF8", fontWeight: "700" },
   postTextInput: {
-    color: "#F1F5F9", fontSize: 15, lineHeight: 24,
+    color: "#F1F5F9",
+    fontSize: 15,
+    lineHeight: 24,
     backgroundColor: "rgba(20,26,60,0.8)",
-    borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: "rgba(99,102,241,0.15)",
-    minHeight: 120,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(99,102,241,0.15)",
+    minHeight: 130,
   },
-  charCount: { color: "#334155", fontSize: 11, textAlign: "right" },
+  charCount: { color: "#334155", fontSize: 11, textAlign: "right", marginTop: 6 },
   postBtn: { borderRadius: 18, overflow: "hidden" },
   postBtnGrad: { height: 54, alignItems: "center", justifyContent: "center" },
   postBtnText: { color: "#fff", fontSize: 16, fontWeight: "700", letterSpacing: 0.2 },
   errorText: {
-    color: "#EF4444", fontSize: 13,
-    backgroundColor: "rgba(239,68,68,0.08)", borderRadius: 10,
+    color: "#EF4444",
+    fontSize: 13,
+    backgroundColor: "rgba(239,68,68,0.08)",
+    borderRadius: 10,
     padding: 10,
   },
 });

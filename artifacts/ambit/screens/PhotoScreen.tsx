@@ -16,6 +16,8 @@ import { GradientButton } from "@/components/GradientButton";
 import { MascotGuide } from "@/components/MascotGuide";
 import { ProgressBar } from "@/components/ProgressBar";
 import { useOnboarding } from "@/context/OnboardingContext";
+import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabase";
 
 const PALETTES = [
   { id: "A", colors: ["#3B82F6", "#6366F1"] as const },
@@ -28,11 +30,12 @@ const PALETTES = [
 
 export function PhotoScreen() {
   const { goNext, goBack, updateData, data, currentStep, totalSteps } = useOnboarding();
+  const { user, refreshProfile } = useAuth();
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   const [selected, setSelected] = useState(data.avatarStyle ?? "A");
+  const [saving, setSaving] = useState(false);
   const fade = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(28)).current;
   const frameGlow = useRef(new Animated.Value(0)).current;
@@ -52,8 +55,16 @@ export function PhotoScreen() {
 
   const palette = PALETTES.find((p) => p.id === selected) ?? PALETTES[0];
 
-  function handleNext() {
+  async function handleNext() {
+    setSaving(true);
+    if (user) {
+      await supabase
+        .from("profiles")
+        .upsert({ id: user.id, email: user.email!, avatar_style: selected }, { onConflict: "id" });
+      await refreshProfile();
+    }
     updateData({ avatarStyle: selected });
+    setSaving(false);
     goNext();
   }
 
@@ -61,7 +72,7 @@ export function PhotoScreen() {
     <View style={styles.screen}>
       <GradientBackground />
 
-      <View style={[styles.content, { paddingTop: topPad + 16, paddingBottom: bottomPad + 20 }]}>
+      <View style={[styles.content, { paddingTop: topPad + 16, paddingBottom: 20 }]}>
         <View style={styles.topBar}>
           <TouchableOpacity onPress={goBack} style={styles.backBtn}>
             <Feather name="chevron-left" size={24} color="#64748B" />
@@ -81,18 +92,20 @@ export function PhotoScreen() {
             {/* Main preview */}
             <View style={styles.previewCenter}>
               <Animated.View
-                style={[styles.haloRing, { opacity: frameGlow.interpolate({ inputRange: [0, 1], outputRange: [0.4, 0.9] }) }]}
+                style={[
+                  styles.haloRing,
+                  {
+                    opacity: frameGlow.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.4, 0.9],
+                    }),
+                  },
+                ]}
               >
-                <LinearGradient
-                  colors={palette.colors}
-                  style={styles.haloGradient}
-                />
+                <LinearGradient colors={palette.colors} style={styles.haloGradient} />
               </Animated.View>
               <View style={styles.frameOuter}>
-                <LinearGradient
-                  colors={palette.colors}
-                  style={styles.frameInner}
-                >
+                <LinearGradient colors={palette.colors} style={styles.frameInner}>
                   <Text style={styles.avatarLetter}>
                     {data.nickname?.[0]?.toUpperCase() ?? selected}
                   </Text>
@@ -102,21 +115,20 @@ export function PhotoScreen() {
               <Text style={styles.previewSub}>Ambit member</Text>
             </View>
 
-            {/* Upload option */}
+            {/* Upload option (cosmetic for now) */}
             <TouchableOpacity style={styles.uploadRow} activeOpacity={0.85}>
               <View style={styles.uploadIcon}>
                 <Feather name="camera" size={18} color="#6366F1" />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.uploadTitle}>Upload a photo</Text>
-                <Text style={styles.uploadSub}>Show your real face to the community</Text>
+                <Text style={styles.uploadSub}>Coming soon — photo uploads</Text>
               </View>
               <Feather name="chevron-right" size={18} color="#334155" />
             </TouchableOpacity>
 
             <Text style={styles.orText}>or choose an avatar color</Text>
 
-            {/* Avatar palette grid */}
             <View style={styles.paletteGrid}>
               {PALETTES.map((p) => (
                 <AvatarChip
@@ -131,7 +143,12 @@ export function PhotoScreen() {
 
             <MascotGuide message="Your profile, your presence." compact style={styles.mascot} />
 
-            <GradientButton label="Continue" onPress={handleNext} style={styles.btn} />
+            <GradientButton
+              label="Continue"
+              onPress={handleNext}
+              loading={saving}
+              style={styles.btn}
+            />
             <TouchableOpacity style={styles.skipBtn} onPress={goNext} activeOpacity={0.7}>
               <Text style={styles.skipText}>Skip for now</Text>
             </TouchableOpacity>
@@ -154,20 +171,20 @@ function AvatarChip({
   initial: string;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
-  const ring = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.spring(scale, { toValue: selected ? 1.15 : 1, useNativeDriver: true, speed: 22, bounciness: 8 }).start();
-    Animated.timing(ring, { toValue: selected ? 1 : 0, duration: 200, useNativeDriver: false }).start();
+    Animated.spring(scale, {
+      toValue: selected ? 1.15 : 1,
+      useNativeDriver: true,
+      speed: 22,
+      bounciness: 8,
+    }).start();
   }, [selected]);
 
   return (
     <Animated.View style={{ transform: [{ scale }] }}>
       <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={styles.chipWrapper}>
-        <LinearGradient
-          colors={palette.colors}
-          style={[styles.chip, selected && styles.chipSelected]}
-        >
+        <LinearGradient colors={palette.colors} style={styles.chip}>
           <Text style={styles.chipLetter}>{initial}</Text>
         </LinearGradient>
         {selected && <View style={styles.chipRing} />}
@@ -273,7 +290,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  chipSelected: {},
   chipRing: {
     position: "absolute",
     top: -4,
