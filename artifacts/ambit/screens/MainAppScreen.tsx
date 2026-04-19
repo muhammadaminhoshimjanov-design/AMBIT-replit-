@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   RefreshControl,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -266,6 +267,7 @@ export function MainAppScreen() {
             userId={user!.id}
             onJoin={loadMyCircles}
             bottomPad={bottomPad}
+            onViewProfile={setViewingUserId}
           />
         ) : (
           <ProfileTab
@@ -807,82 +809,195 @@ function CirclesTab({
   userId,
   onJoin,
   bottomPad,
+  onViewProfile,
 }: {
   myCircles: any[];
   userId: string;
   onJoin: () => void;
   bottomPad: number;
+  onViewProfile: (id: string) => void;
 }) {
   const [allCircles, setAllCircles] = useState<any[]>([]);
+  const [suggested, setSuggested] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [discoverTab, setDiscoverTab] = useState<"people" | "circles">("people");
 
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    const { data } = await supabase
-      .from("circles")
-      .select("*")
-      .order("member_count", { ascending: false });
-    setAllCircles(data ?? []);
+    const [{ data: circles }, { data: people }] = await Promise.all([
+      supabase.from("circles").select("*").order("member_count", { ascending: false }),
+      supabase.rpc("get_suggested_users", { current_user_id: userId, limit_count: 20 }),
+    ]);
+    setAllCircles(circles ?? []);
+    setSuggested(people ?? []);
     setLoading(false);
   }
 
   async function toggleJoin(circle: any) {
     const joined = myCircles.some((c) => c.id === circle.id);
     if (joined) {
-      await supabase
-        .from("circle_members")
-        .delete()
-        .eq("circle_id", circle.id)
-        .eq("user_id", userId);
+      await supabase.from("circle_members").delete().eq("circle_id", circle.id).eq("user_id", userId);
     } else {
-      await supabase
-        .from("circle_members")
-        .upsert({ circle_id: circle.id, user_id: userId }, { onConflict: "circle_id,user_id" });
+      await supabase.from("circle_members").upsert({ circle_id: circle.id, user_id: userId }, { onConflict: "circle_id,user_id" });
     }
     await loadAll();
     onJoin();
   }
 
+  async function followUser(suggestedUserId: string) {
+    await supabase.from("follows").upsert(
+      { follower_id: userId, following_id: suggestedUserId },
+      { onConflict: "follower_id,following_id" }
+    );
+    setSuggested((prev) => prev.filter((u) => u.user_id !== suggestedUserId));
+  }
+
   return (
     <ScrollView
-      contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: bottomPad + 24, gap: 10 }}
+      contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: bottomPad + 24 }}
     >
-      <Text style={[styles.sectionLabel, { marginTop: 4 }]}>
-        All circles · {allCircles.length}
-      </Text>
+      {/* Toggle: People / Circles */}
+      <View style={styles.discoverToggle}>
+        <TouchableOpacity
+          style={[styles.discoverToggleBtn, discoverTab === "people" && styles.discoverToggleBtnActive]}
+          onPress={() => setDiscoverTab("people")}
+          activeOpacity={0.8}
+        >
+          {discoverTab === "people" && (
+            <LinearGradient
+              colors={["rgba(99,102,241,0.25)", "rgba(59,130,246,0.15)"]}
+              style={StyleSheet.absoluteFill}
+            />
+          )}
+          <Feather name="users" size={14} color={discoverTab === "people" ? "#818CF8" : "#475569"} />
+          <Text style={[styles.discoverToggleText, discoverTab === "people" && styles.discoverToggleTextActive]}>
+            People
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.discoverToggleBtn, discoverTab === "circles" && styles.discoverToggleBtnActive]}
+          onPress={() => setDiscoverTab("circles")}
+          activeOpacity={0.8}
+        >
+          {discoverTab === "circles" && (
+            <LinearGradient
+              colors={["rgba(99,102,241,0.25)", "rgba(59,130,246,0.15)"]}
+              style={StyleSheet.absoluteFill}
+            />
+          )}
+          <Feather name="globe" size={14} color={discoverTab === "circles" ? "#818CF8" : "#475569"} />
+          <Text style={[styles.discoverToggleText, discoverTab === "circles" && styles.discoverToggleTextActive]}>
+            Circles
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       {loading ? (
-        <ActivityIndicator color="#6366F1" style={{ marginTop: 24 }} />
-      ) : (
-        allCircles.map((circle, i) => {
-          const joined = myCircles.some((c) => c.id === circle.id);
-          const pal = Object.values(PALETTES)[i % 6] as [string, string];
-          return (
-            <View key={circle.id} style={styles.circleRow}>
-              <LinearGradient
-                colors={["rgba(15,20,50,0.85)", "rgba(12,16,42,0.9)"]}
-                style={styles.circleRowGrad}
-              >
-                <LinearGradient colors={pal} style={styles.circleIcon}>
-                  <Feather name="users" size={16} color="#fff" />
-                </LinearGradient>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.circleRowName}>{circle.name}</Text>
-                  <Text style={styles.circleRowCount}>{circle.member_count} members</Text>
-                </View>
-                <TouchableOpacity
-                  style={[styles.joinBtn, joined && styles.joinedBtn]}
-                  onPress={() => toggleJoin(circle)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.joinBtnText, joined && styles.joinedBtnText]}>
-                    {joined ? "Joined" : "Join"}
-                  </Text>
-                </TouchableOpacity>
-              </LinearGradient>
+        <ActivityIndicator color="#6366F1" style={{ marginTop: 32 }} />
+      ) : discoverTab === "people" ? (
+        <>
+          <Text style={[styles.sectionLabel, { marginBottom: 14 }]}>
+            Suggested for you · {suggested.length}
+          </Text>
+          {suggested.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Feather name="user-plus" size={28} color="#334155" />
+              <Text style={styles.emptyTitle}>No suggestions yet</Text>
+              <Text style={styles.emptySub}>Join more circles to find people with shared interests</Text>
             </View>
-          );
-        })
+          ) : (
+            suggested.map((person, i) => {
+              const pal = PALETTES[person.avatar_style ?? "A"] ?? PALETTES["A"];
+              const initial = person.nickname?.[0]?.toUpperCase() ?? "?";
+              return (
+                <View key={person.user_id} style={styles.suggestedCard}>
+                  <LinearGradient
+                    colors={["rgba(15,20,50,0.85)", "rgba(12,16,42,0.9)"]}
+                    style={styles.suggestedCardGrad}
+                  >
+                    <TouchableOpacity
+                      style={styles.suggestedLeft}
+                      onPress={() => onViewProfile(person.user_id)}
+                      activeOpacity={0.8}
+                    >
+                      {person.avatar_url ? (
+                        <Image source={{ uri: person.avatar_url }} style={styles.suggestedAvatar} />
+                      ) : (
+                        <LinearGradient colors={pal} style={styles.suggestedAvatar}>
+                          <Text style={styles.suggestedAvatarText}>{initial}</Text>
+                        </LinearGradient>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.suggestedName}>{person.nickname ?? "Ambit Member"}</Text>
+                        {person.student_identity ? (
+                          <Text style={styles.suggestedIdentity}>{person.student_identity}</Text>
+                        ) : null}
+                        {person.shared_circles > 0 && (
+                          <View style={styles.sharedCirclesRow}>
+                            <Feather name="users" size={10} color="#6366F1" />
+                            <Text style={styles.sharedCirclesText}>
+                              {person.shared_circles} shared circle{person.shared_circles > 1 ? "s" : ""}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.followSuggestedBtn}
+                      onPress={() => followUser(person.user_id)}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={["#3B82F6", "#6366F1"]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={StyleSheet.absoluteFill}
+                      />
+                      <Feather name="user-plus" size={13} color="#fff" />
+                      <Text style={styles.followSuggestedText}>Follow</Text>
+                    </TouchableOpacity>
+                  </LinearGradient>
+                </View>
+              );
+            })
+          )}
+        </>
+      ) : (
+        <>
+          <Text style={[styles.sectionLabel, { marginBottom: 14 }]}>
+            All circles · {allCircles.length}
+          </Text>
+          {allCircles.map((circle, i) => {
+            const joined = myCircles.some((c) => c.id === circle.id);
+            const pal = Object.values(PALETTES)[i % 6] as [string, string];
+            return (
+              <View key={circle.id} style={[styles.circleRow, { marginBottom: 10 }]}>
+                <LinearGradient
+                  colors={["rgba(15,20,50,0.85)", "rgba(12,16,42,0.9)"]}
+                  style={styles.circleRowGrad}
+                >
+                  <LinearGradient colors={pal} style={styles.circleIcon}>
+                    <Feather name="users" size={16} color="#fff" />
+                  </LinearGradient>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.circleRowName}>{circle.name}</Text>
+                    <Text style={styles.circleRowCount}>{circle.member_count} members</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.joinBtn, joined && styles.joinedBtn]}
+                    onPress={() => toggleJoin(circle)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.joinBtnText, joined && styles.joinedBtnText]}>
+                      {joined ? "Joined" : "Join"}
+                    </Text>
+                  </TouchableOpacity>
+                </LinearGradient>
+              </View>
+            );
+          })}
+        </>
       )}
     </ScrollView>
   );
@@ -1242,6 +1357,72 @@ const styles = StyleSheet.create({
   profilePostContent: { color: "#94A3B8", fontSize: 14, lineHeight: 22, marginBottom: 10 },
   profilePostMeta: { flexDirection: "row", alignItems: "center", gap: 7 },
   profileMetaNum: { color: "#334155", fontSize: 12, fontWeight: "600" },
+  discoverToggle: {
+    flexDirection: "row",
+    gap: 8,
+    marginVertical: 16,
+    backgroundColor: "rgba(14,19,48,0.7)",
+    borderRadius: 16,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+  },
+  discoverToggleBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingVertical: 10,
+    borderRadius: 13,
+    overflow: "hidden",
+    position: "relative",
+  },
+  discoverToggleBtnActive: {},
+  discoverToggleText: { color: "#475569", fontSize: 14, fontWeight: "600" },
+  discoverToggleTextActive: { color: "#818CF8", fontWeight: "700" },
+  suggestedCard: {
+    borderRadius: 18,
+    overflow: "hidden",
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+  },
+  suggestedCardGrad: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    gap: 12,
+  },
+  suggestedLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  suggestedAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  suggestedAvatarText: { color: "#fff", fontSize: 20, fontWeight: "800" },
+  suggestedName: { color: "#E2E8F0", fontSize: 15, fontWeight: "700", marginBottom: 3 },
+  suggestedIdentity: { color: "#475569", fontSize: 12, marginBottom: 4 },
+  sharedCirclesRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  sharedCirclesText: { color: "#6366F1", fontSize: 11, fontWeight: "600" },
+  followSuggestedBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 14,
+    overflow: "hidden",
+    position: "relative",
+  },
+  followSuggestedText: { color: "#fff", fontSize: 13, fontWeight: "700", zIndex: 1 },
   signOutBtn: {
     flexDirection: "row",
     alignItems: "center",

@@ -1,4 +1,5 @@
 import { LinearGradient } from "expo-linear-gradient";
+import * as ImagePicker from "expo-image-picker";
 import React, { useState, useRef, useEffect } from "react";
 import {
   View,
@@ -8,6 +9,8 @@ import {
   Animated,
   Platform,
   ScrollView,
+  Image,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -35,7 +38,9 @@ export function PhotoScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
   const [selected, setSelected] = useState(data.avatarStyle ?? "A");
+  const [photoUri, setPhotoUri] = useState<string | null>(data.photoUri ?? null);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const fade = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(28)).current;
   const frameGlow = useRef(new Animated.Value(0)).current;
@@ -53,6 +58,72 @@ export function PhotoScreen() {
     ).start();
   }, []);
 
+  async function pickImage() {
+    if (Platform.OS === "web") {
+      // Web: use file input via ImagePicker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+        base64: true,
+      });
+      if (!result.canceled && result.assets[0]) {
+        setPhotoUri(result.assets[0].uri);
+        updateData({ photoUri: result.assets[0].uri });
+        await uploadPhoto(result.assets[0]);
+      }
+      return;
+    }
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Please allow access to your photo library.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+      base64: true,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setPhotoUri(result.assets[0].uri);
+      updateData({ photoUri: result.assets[0].uri });
+      await uploadPhoto(result.assets[0]);
+    }
+  }
+
+  async function uploadPhoto(asset: ImagePicker.ImagePickerAsset) {
+    if (!user || !asset.base64) return;
+    setUploading(true);
+    try {
+      const fileName = `${user.id}/avatar.jpg`;
+      const base64Data = asset.base64;
+      const byteArray = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+
+      const { error } = await supabase.storage
+        .from("avatars")
+        .upload(fileName, byteArray, {
+          contentType: "image/jpeg",
+          upsert: true,
+        });
+
+      if (!error) {
+        const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(fileName);
+        await supabase
+          .from("profiles")
+          .update({ avatar_url: urlData.publicUrl })
+          .eq("id", user.id);
+      }
+    } catch (e) {
+      // Storage bucket not set up yet — photo stays local only
+    } finally {
+      setUploading(false);
+    }
+  }
+
   const palette = PALETTES.find((p) => p.id === selected) ?? PALETTES[0];
 
   async function handleNext() {
@@ -60,7 +131,10 @@ export function PhotoScreen() {
     if (user) {
       await supabase
         .from("profiles")
-        .upsert({ id: user.id, email: user.email!, avatar_style: selected }, { onConflict: "id" });
+        .upsert(
+          { id: user.id, email: user.email!, avatar_style: selected },
+          { onConflict: "id" }
+        );
       await refreshProfile();
     }
     updateData({ avatarStyle: selected });
@@ -105,27 +179,51 @@ export function PhotoScreen() {
                 <LinearGradient colors={palette.colors} style={styles.haloGradient} />
               </Animated.View>
               <View style={styles.frameOuter}>
-                <LinearGradient colors={palette.colors} style={styles.frameInner}>
-                  <Text style={styles.avatarLetter}>
-                    {data.nickname?.[0]?.toUpperCase() ?? selected}
-                  </Text>
-                </LinearGradient>
+                {photoUri ? (
+                  <Image source={{ uri: photoUri }} style={styles.photoPreview} />
+                ) : (
+                  <LinearGradient colors={palette.colors} style={styles.frameInner}>
+                    <Text style={styles.avatarLetter}>
+                      {data.nickname?.[0]?.toUpperCase() ?? selected}
+                    </Text>
+                  </LinearGradient>
+                )}
               </View>
               <Text style={styles.previewName}>{data.nickname || "Your Name"}</Text>
               <Text style={styles.previewSub}>Ambit member</Text>
+              {uploading && (
+                <Text style={styles.uploadingText}>Uploading photo...</Text>
+              )}
             </View>
 
-            {/* Upload option (cosmetic for now) */}
-            <TouchableOpacity style={styles.uploadRow} activeOpacity={0.85}>
+            {/* Upload button */}
+            <TouchableOpacity style={styles.uploadRow} onPress={pickImage} activeOpacity={0.85}>
+              <LinearGradient
+                colors={["rgba(99,102,241,0.2)", "rgba(59,130,246,0.12)"]}
+                style={StyleSheet.absoluteFill}
+              />
               <View style={styles.uploadIcon}>
                 <Feather name="camera" size={18} color="#6366F1" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.uploadTitle}>Upload a photo</Text>
-                <Text style={styles.uploadSub}>Coming soon — photo uploads</Text>
+                <Text style={styles.uploadTitle}>
+                  {photoUri ? "Change photo" : "Upload a photo"}
+                </Text>
+                <Text style={styles.uploadSub}>
+                  {photoUri ? "Tap to pick a different one" : "Pick from your library"}
+                </Text>
               </View>
               <Feather name="chevron-right" size={18} color="#334155" />
             </TouchableOpacity>
+
+            {photoUri && (
+              <TouchableOpacity
+                style={styles.removePhotoBtn}
+                onPress={() => { setPhotoUri(null); updateData({ photoUri: null }); }}
+              >
+                <Text style={styles.removePhotoText}>Remove photo</Text>
+              </TouchableOpacity>
+            )}
 
             <Text style={styles.orText}>or choose an avatar color</Text>
 
@@ -134,8 +232,8 @@ export function PhotoScreen() {
                 <AvatarChip
                   key={p.id}
                   palette={p}
-                  selected={selected === p.id}
-                  onPress={() => setSelected(p.id)}
+                  selected={!photoUri && selected === p.id}
+                  onPress={() => { setSelected(p.id); setPhotoUri(null); updateData({ photoUri: null }); }}
                   initial={data.nickname?.[0]?.toUpperCase() ?? p.id}
                 />
               ))}
@@ -146,7 +244,7 @@ export function PhotoScreen() {
             <GradientButton
               label="Continue"
               onPress={handleNext}
-              loading={saving}
+              loading={saving || uploading}
               style={styles.btn}
             />
             <TouchableOpacity style={styles.skipBtn} onPress={goNext} activeOpacity={0.7}>
@@ -250,9 +348,11 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
   },
   frameInner: { flex: 1, alignItems: "center", justifyContent: "center" },
+  photoPreview: { width: 110, height: 110, borderRadius: 55 },
   avatarLetter: { fontSize: 44, fontWeight: "800", color: "#fff" },
   previewName: { color: "#F8FAFC", fontSize: 18, fontWeight: "700", marginBottom: 4 },
   previewSub: { color: "#475569", fontSize: 13 },
+  uploadingText: { color: "#818CF8", fontSize: 12, marginTop: 6 },
   uploadRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -260,9 +360,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15,20,50,0.8)",
     borderRadius: 18,
     padding: 18,
-    marginBottom: 20,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: "rgba(99,102,241,0.15)",
+    borderColor: "rgba(99,102,241,0.3)",
+    overflow: "hidden",
+    position: "relative",
   },
   uploadIcon: {
     width: 42,
@@ -274,6 +376,8 @@ const styles = StyleSheet.create({
   },
   uploadTitle: { color: "#E2E8F0", fontSize: 15, fontWeight: "600" },
   uploadSub: { color: "#475569", fontSize: 12, marginTop: 2 },
+  removePhotoBtn: { alignItems: "center", paddingVertical: 8, marginBottom: 8 },
+  removePhotoText: { color: "#EF4444", fontSize: 13 },
   orText: { color: "#334155", fontSize: 13, textAlign: "center", marginBottom: 16 },
   paletteGrid: {
     flexDirection: "row",

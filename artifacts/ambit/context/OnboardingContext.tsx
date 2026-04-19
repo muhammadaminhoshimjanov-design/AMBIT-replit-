@@ -47,14 +47,15 @@ export function OnboardingProvider({
 }) {
   const [data, setData] = useState<OnboardingData>(defaultData);
   const [currentStep, setCurrentStep] = useState(0);
-  const totalSteps = 6;
+  const totalSteps = 6;   // display label (steps 1–6, not counting Welcome)
+  const maxScreenIndex = 6; // 7 screens total: Welcome(0)…Summary(6)
 
   function updateData(updates: Partial<OnboardingData>) {
     setData((prev) => ({ ...prev, ...updates }));
   }
 
   function goNext() {
-    if (currentStep < totalSteps - 1) {
+    if (currentStep < maxScreenIndex) {
       setCurrentStep((s) => s + 1);
     } else {
       onComplete();

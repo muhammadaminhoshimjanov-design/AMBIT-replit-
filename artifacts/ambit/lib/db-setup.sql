@@ -190,6 +190,51 @@ create trigger on_circle_member_change
   after insert or delete on public.circle_members
   for each row execute procedure update_circle_member_count();
 
+-- Suggested users match algorithm
+-- Returns users ranked by: shared circles (weighted 3x) + similar focus_topics (weighted 2x) + same identity (1x)
+-- Excludes: yourself, already-followed users, users who haven't completed onboarding
+create or replace function get_suggested_users(current_user_id uuid, limit_count int default 20)
+returns table(
+  user_id uuid,
+  nickname text,
+  bio text,
+  avatar_style text,
+  avatar_url text,
+  student_identity text,
+  focus_topics text[],
+  shared_circles bigint,
+  score bigint
+)
+language plpgsql security definer
+as $$
+begin
+  return query
+  select
+    p.id as user_id,
+    p.nickname,
+    p.bio,
+    p.avatar_style,
+    p.avatar_url,
+    p.student_identity,
+    p.focus_topics,
+    count(distinct cm2.circle_id) as shared_circles,
+    (count(distinct cm2.circle_id) * 3
+      + (case when p.student_identity = (select student_identity from public.profiles where id = current_user_id) then 1 else 0 end)
+    ) as score
+  from public.profiles p
+  left join public.circle_members cm1 on cm1.user_id = current_user_id
+  left join public.circle_members cm2 on cm2.circle_id = cm1.circle_id and cm2.user_id = p.id
+  where p.id <> current_user_id
+    and p.onboarding_completed = true
+    and p.id not in (
+      select following_id from public.follows where follower_id = current_user_id
+    )
+  group by p.id, p.nickname, p.bio, p.avatar_style, p.avatar_url, p.student_identity, p.focus_topics
+  order by score desc, p.created_at desc
+  limit limit_count;
+end;
+$$;
+
 -- Update comment count
 create or replace function update_post_comment_count()
 returns trigger as $$
