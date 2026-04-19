@@ -117,11 +117,14 @@ returns json
 language plpgsql security definer
 as $$
 declare
-  existing_like record;
+  like_exists boolean;
   new_count integer;
 begin
-  select * into existing_like from public.post_likes where post_id = p_post_id and user_id = p_user_id;
-  if found then
+  select exists(
+    select 1 from public.post_likes where post_id = p_post_id and user_id = p_user_id
+  ) into like_exists;
+
+  if like_exists then
     delete from public.post_likes where post_id = p_post_id and user_id = p_user_id;
     update public.posts set like_count = greatest(0, like_count - 1) where id = p_post_id returning like_count into new_count;
     return json_build_object('liked', false, 'like_count', new_count);
