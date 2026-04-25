@@ -1,54 +1,37 @@
-import React, { Component, ComponentType, PropsWithChildren } from "react";
+import React from "react";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { colors, font } from "@/lib/theme";
 
-import { ErrorFallback, ErrorFallbackProps } from "@/components/ErrorFallback";
+interface State { hasError: boolean; error: Error | null }
 
-export type ErrorBoundaryProps = PropsWithChildren<{
-  FallbackComponent?: ComponentType<ErrorFallbackProps>;
-  onError?: (error: Error, stackTrace: string) => void;
-}>;
+export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, State> {
+  state: State = { hasError: false, error: null };
 
-type ErrorBoundaryState = { error: Error | null };
-
-/**
- * This is a special case for for using the class components. Error boundaries must be class components because React only provides error boundary functionality through lifecycle methods (componentDidCatch and getDerivedStateFromError) which are not available in functional components.
- * https://react.dev/reference/react/Component#catching-rendering-errors-with-an-error-boundary
- */
-export class ErrorBoundary extends Component<
-  ErrorBoundaryProps,
-  ErrorBoundaryState
-> {
-  state: ErrorBoundaryState = { error: null };
-
-  static defaultProps: {
-    FallbackComponent: ComponentType<ErrorFallbackProps>;
-  } = {
-    FallbackComponent: ErrorFallback,
-  };
-
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { error };
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, info: { componentStack: string }): void {
-    if (typeof this.props.onError === "function") {
-      this.props.onError(error, info.componentStack);
-    }
+  componentDidCatch(error: Error, info: any) {
+    console.error("Ambit ErrorBoundary:", error, info);
   }
-
-  resetError = (): void => {
-    this.setState({ error: null });
-  };
 
   render() {
-    const { FallbackComponent } = this.props;
-
-    return this.state.error && FallbackComponent ? (
-      <FallbackComponent
-        error={this.state.error}
-        resetError={this.resetError}
-      />
-    ) : (
-      this.props.children
-    );
+    if (this.state.hasError) {
+      return (
+        <ScrollView contentContainerStyle={styles.wrap}>
+          <Text style={styles.title}>Something went wrong</Text>
+          <Text style={styles.body}>{this.state.error?.message ?? "Unknown error"}</Text>
+          <Text style={styles.hint}>Try restarting the app or pulling down to refresh.</Text>
+        </ScrollView>
+      );
+    }
+    return this.props.children;
   }
 }
+
+const styles = StyleSheet.create({
+  wrap: { flexGrow: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: colors.bg },
+  title: { color: colors.error, fontFamily: font.bold, fontSize: 18, marginBottom: 12 },
+  body: { color: colors.textMuted, fontFamily: font.regular, textAlign: "center", marginBottom: 18, lineHeight: 20 },
+  hint: { color: colors.textDim, fontSize: 12, fontFamily: font.regular },
+});

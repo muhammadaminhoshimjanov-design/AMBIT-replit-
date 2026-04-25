@@ -1,19 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-
-interface Profile {
-  id: string;
-  email: string;
-  nickname: string | null;
-  bio: string | null;
-  avatar_url: string | null;
-  avatar_style: string | null;
-  focus_topics: string[];
-  student_identity: string | null;
-  circle_preference: string | null;
-  onboarding_completed: boolean;
-}
+import { Profile } from "@/lib/database.types";
 
 interface AuthContextType {
   session: Session | null;
@@ -22,7 +10,7 @@ interface AuthContextType {
   loading: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
-  setProfile: (p: Profile) => void;
+  setProfile: (p: Profile | null) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -31,6 +19,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const fetchProfile = useCallback(async (userId: string) => {
+    const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
+    setProfile((data as Profile) ?? null);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -41,49 +35,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-      } else {
+      if (session?.user) fetchProfile(session.user.id);
+      else {
         setProfile(null);
         setLoading(false);
       }
     });
 
     return () => listener.subscription.unsubscribe();
-  }, []);
+  }, [fetchProfile]);
 
-  async function fetchProfile(userId: string) {
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
-    setProfile(data ?? null);
-    setLoading(false);
-  }
-
-  async function refreshProfile() {
+  const refreshProfile = useCallback(async () => {
     if (session?.user) await fetchProfile(session.user.id);
-  }
+  }, [session, fetchProfile]);
 
-  async function signOut() {
+  const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setProfile(null);
     setSession(null);
-  }
+  }, []);
 
   return (
-    <AuthContext.Provider
-      value={{
-        session,
-        user: session?.user ?? null,
-        profile,
-        loading,
-        signOut,
-        refreshProfile,
-        setProfile,
-      }}
-    >
+    <AuthContext.Provider value={{ session, user: session?.user ?? null, profile, loading, signOut, refreshProfile, setProfile }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,0 +1,274 @@
+PAGE NAME:
+WelcomePage
+
+BACKGROUND:
+Container
+- Width: infinity
+- Height: infinity
+- Gradient:
+  Top: #07111F
+  Middle: #0B1B33
+  Bottom: #020617
+
+MAIN COLUMN:
+Column
+- Alignment: Center
+- Padding: 24px
+- Spacing: 22px
+
+TOP LOGO:
+Container
+- Width: 82
+- Height: 82
+- Border radius: 28
+- Background gradient: #F5B942 → #FFD76A
+- Shadow:
+  Color: #F5B942
+  Blur: 28
+  Opacity: 0.35
+
+Inside:
+Icon/Image:
+Lion paw logo
+- Size: 42
+- Color: #07111F
+
+ANIMATION:
+On page load:
+- Fade in
+- Scale from 0.8 to 1
+- Duration: 800ms
+CENTER HERO SECTION:
+
+Image
+- Source: lion mascot image
+- Width: 260
+- Height: 260
+- Fit: contain
+
+Animation:
+- Move from Y: 40 to Y: 0
+- Fade in
+- Duration: 1000ms
+- Curve: easeOutBack
+
+Behind image:
+Container
+- Width: 300
+- Height: 300
+- Border radius: 150
+- Border: 1px #F5B942 at 30% opacity
+- Shadow glow: gold
+HEADLINE:
+
+Text:
+Find your people.
+Build your future.
+
+Style:
+- Font size: 34
+- Weight: 800
+- Color: #FFF7E6
+- Align: center
+- Line height: 1.1
+
+Animation:
+- Fade in
+- Slide up 20px
+- Delay: 1200ms
+- Duration: 700ms
+SUBHEADLINE:
+
+Text:
+Ambit is where ambitious students connect, grow, share progress, and build their future together.
+
+Style:
+- Font size: 15
+- Weight: 400
+- Color: #B8C3D9
+- Align: center
+- Line height: 1.5
+- Max width: 320
+PRIMARY BUTTON:
+
+Button text:
+Enter Ambit
+
+Width: infinity
+Height: 58
+Border radius: 22
+Background gradient:
+#F5B942 → #FFD76A
+
+Text:
+- Color: #07111F
+- Size: 17
+- Weight: 700
+
+Shadow:
+- Color: #F5B942
+- Blur: 24
+- Opacity: 0.35
+
+On Tap:
+1. Haptic feedback
+2. Show loading state for 1 second
+3. Navigate to AuthChoicePage
+
+Animation:
+- Scale on tap: 0.96
+- Return: 1.0
+SECONDARY BUTTON:
+
+Text:
+I already have an account
+
+Style:
+- Transparent background
+- Border: 1px #FFFFFF 20% opacity
+- Text color: #FFF7E6
+- Height: 54
+- Border radius: 22
+
+On Tap:
+Navigate to LoginPage
+
+Now create these FlutterFlow pages in this exact order:
+
+1. WelcomePage
+2. AuthChoicePage
+3. IdentitySetupPage
+4. GoalSetupPage
+5. CommunitySelectionPage
+6. HomeDashboardPage
+7. CommunityFeedPage
+8. CreatePostPage
+9. CommentsPage
+10. ProfilePage
+11. EditProfilePage
+12. GoalsPage
+13. CommunitiesPage
+14. SingleCommunityPage
+15. SearchPage
+16. NotificationsPage
+17. LionMentorPage
+18. LeaderboardPage
+19. BadgesPage
+20. SettingsPage
+21. ReportContentPage
+22. ModeratorDashboardPage
+23. UserManagementPage
+24. AnalyticsPage
+25. PremiumPage
+
+Supabase tables for FlutterFlow:
+
+users
+- id
+- email
+- username
+- full_name
+- avatar_url
+- ambition_title
+- bio
+- xp
+- level
+- streak
+- role
+- is_banned
+- created_at
+
+communities
+- id
+- name
+- description
+- icon_url
+- member_count
+- created_at
+
+community_members
+- id
+- user_id
+- community_id
+- joined_at
+
+posts
+- id
+- user_id
+- community_id
+- content
+- image_url
+- type
+- upvotes
+- comments_count
+- status
+- created_at
+
+comments
+- id
+- post_id
+- user_id
+- content
+- status
+- created_at
+
+goals
+- id
+- user_id
+- title
+- type
+- progress
+- deadline
+- created_at
+
+badges
+- id
+- name
+- description
+- icon_url
+- xp_required
+
+user_badges
+- id
+- user_id
+- badge_id
+- earned_at
+
+reports
+- id
+- reporter_id
+- reported_user_id
+- post_id
+- comment_id
+- reason
+- details
+- severity
+- status
+- created_at
+
+notifications
+- id
+- user_id
+- title
+- body
+- type
+- is_read
+- created_at
+
+FlutterFlow theme:
+
+Primary color: #F5B942
+Secondary color: #3B82F6
+Success: #10B981
+Error: #EF4444
+Background: #07111F
+Card background: #101B2D
+Text primary: #FFF7E6
+Text secondary: #B8C3D9
+Border: #FFFFFF with 12% opacity
+
+Default border radius:
+Cards: 24
+Buttons: 22
+Inputs: 18
+Bottom sheets: 28 top corners
