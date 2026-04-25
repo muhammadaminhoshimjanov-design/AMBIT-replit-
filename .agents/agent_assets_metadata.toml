@@ -1,5 +1,4 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "UkWZQ1TzWhcYP4j_ES7aH"
@@ -12,3 +11,75 @@ id = "OrC13vW0fkMvB5RBbYedy"
 uri = "file://artifacts/ambit/assets/images/icon.png"
 type = "image"
 title = "generated_image"
+
+[[outputs]]
+id = "u9zAnqp1BrCCKPar7hQty"
+uri = "file://screenshots/01-welcome.jpg"
+type = "image"
+title = "1. Welcome screen"
+
+[[outputs]]
+id = "DBcQODB8drK7mx3pp1rGw"
+uri = "file://screenshots/02-signup.jpg"
+type = "image"
+title = "2. Sign up"
+
+[[outputs]]
+id = "-VZx888d9aW_uxdrKDuHN"
+uri = "file://screenshots/03-login.jpg"
+type = "image"
+title = "3. Log in"
+
+[[outputs]]
+id = "mX9QA8yipQ8v-r1tST2Rs"
+uri = "file://screenshots/12-create-post.jpg"
+type = "image"
+title = "4. Create new post"
+
+[[outputs]]
+id = "X1_TJPg6_WpI3fweHNW0X"
+uri = "file://screenshots/13-goals.jpg"
+type = "image"
+title = "5. Your goals"
+
+[[outputs]]
+id = "jIUU2V7EKXVIPQD-I21us"
+uri = "file://screenshots/14-badges.jpg"
+type = "image"
+title = "6. Badges"
+
+[[outputs]]
+id = "GQYkEAPU8VZBnMdt4pnQm"
+uri = "file://screenshots/15-leaderboard.jpg"
+type = "image"
+title = "7. Leaderboard"
+
+[[outputs]]
+id = "h5CLAp7dRAfckH7MQk47Q"
+uri = "file://screenshots/16-mentor.jpg"
+type = "image"
+title = "8. Lion Mentor (AI study partner)"
+
+[[outputs]]
+id = "qS3Mywej09Yo3K4hHHhuR"
+uri = "file://screenshots/17-premium.jpg"
+type = "image"
+title = "9. Ambit Premium"
+
+[[outputs]]
+id = "vsWKEYRyWoaVLn6Se0aBy"
+uri = "file://screenshots/18-settings.jpg"
+type = "image"
+title = "10. Settings"
+
+[[outputs]]
+id = "MrjP04eQbv44R1WXDS-3r"
+uri = "file://screenshots/19-edit-profile.jpg"
+type = "image"
+title = "11. Edit profile"
+
+[[outputs]]
+id = "lr8hD-F6TuDTdZhWYbU61"
+uri = "file://screenshots/20-mod-dashboard.jpg"
+type = "image"
+title = "12. Mod dashboard"
